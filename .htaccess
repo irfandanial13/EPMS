@@ -1,0 +1,22 @@
+# EPMS — tetapan Apache peringkat akar (Fasa 1.5 Task 2, 19/11/2026)
+# Pemasang hanya melalui baris arahan: C:\xampp\php\php.exe install.php
+# Akses pelayar disekat oleh Apache sebelum PHP dijalankan (lapisan kedua selain storage/install.lock).
+<Files "install.php">
+    Require all denied
+</Files>
+
+# --- Fasa 1.5 Task 3 (19/11/2026): lindungi fail sensitif ---
+# Tiada senarai kandungan folder (cth assets/, includes/).
+Options -Indexes
+
+# Fail data sumber, dump SQL, backup, log, dokumen dan skrip tidak boleh dimuat turun terus.
+# Aplikasi membaca fail ini melalui sistem fail (bukan URL); muat turun sah melalui backup.php (log masuk wajib)
+# dan eksport dijana oleh laporan.php / penyaluran.php. Padanan tidak sensitif huruf (?i).
+<FilesMatch "(?i)\.(xlsx|xlsm|xls|csv|sql|json|bak|zip|log|lock|md|py|bat|ps1|salinan|ini|env|dist)$">
+    Require all denied
+</FilesMatch>
+
+# Konfigurasi tidak boleh dicapai terus (dimuatkan melalui require sahaja).
+<Files "config.php">
+    Require all denied
+</Files>

@@ -1,0 +1,49 @@
+# EPMS — .gitignore (Fasa 1.5 Task 4, 19/11/2026)
+# Prinsip: kod sumber, aset, .htaccess, skrip dan dokumentasi DIJEJAK;
+# data sebenar, kelayakan, backup, log dan fail runtime TIDAK dijejak.
+
+# --- 1. Data sensitif: sumber Excel, dump/data SQL, eksport, backup ---
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+*.sql
+# Kecuali skema (struktur jadual + seed 4 wilayah sahaja, tiada data penyaluran/pengguna)
+!/database/schema.sql
+*.json
+*.bak
+*.zip
+*.salinan
+*.sqlite
+*.db
+
+# --- 2. Kelayakan & konfigurasi rahsia ---
+# config.php mengandungi kelayakan DB; gunakan config.example.php sebagai templat.
+/config.php
+config.local.php
+.env
+.env.*
+
+# --- 3. Runtime: storage (backup, log, install.lock), sesi, cache, sementara ---
+# Semua kandungan storage/ diabaikan kecuali .htaccess yang menyekat akses pelayar.
+/storage/*
+!/storage/.htaccess
+*.log
+*.lock
+sess_*
+/cache/
+/tmp/
+/exports/
+*.tmp
+*.temp
+
+# --- 4. Fail pembangunan: IDE, OS, editor ---
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+Thumbs.db
+desktop.ini
+.DS_Store

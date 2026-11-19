@@ -1,0 +1,3 @@
+# Fail include PHP dimuatkan melalui require sahaja; tidak boleh dicapai terus melalui pelayar
+# (Fasa 1.5 Task 3, 19/11/2026)
+Require all denied

@@ -1,0 +1,2 @@
+# Fail backup dan log tidak boleh diakses terus melalui pelayar
+Require all denied
