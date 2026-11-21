@@ -516,3 +516,6 @@ a.dash-nota:hover { text-decoration: underline; }
   .cetak-lebar .table-data thead { display: table-header-group; }   /* tajuk diulang setiap halaman */
   .cetak-lebar .table-data tr { break-inside: avoid; }              /* baris tidak dipecah */
 }
+
+/* Dashboard: penapis PPK (senarai panjang) */
+.dash-medan-ppk .form-select { min-width: 14rem; }

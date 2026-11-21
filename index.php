@@ -12,11 +12,17 @@ $wilayahId = (int)($_GET['wilayah'] ?? 0);
 if (!in_array($wilayahId, array_map('intval', array_column($wilayahList, 'id')), true)) $wilayahId = 0;
 $musim = (string)($_GET['musim'] ?? '');
 if (!in_array($musim, $musimList, true)) $musim = '';
+// PPK: mesti wujud; jika wilayah dipilih, PPK mesti dalam wilayah itu (jika tidak, penapis PPK diabaikan)
+$ppkList = senarai_ppk();
+$ppkInfo = array_column($ppkList, null, 'id');
+$ppkId = (int)($_GET['ppk'] ?? 0);
+if (!isset($ppkInfo[$ppkId]) || ($wilayahId && (int)$ppkInfo[$ppkId]['wilayah_id'] !== $wilayahId)) $ppkId = 0;
 
 $where = [skop_sql($skop)];
 $params = [];
 if ($wilayahId) { $where[] = 'p.wilayah_id = ?'; $params[] = $wilayahId; }
 if ($musim !== '') { $where[] = 'x.musim = ?'; $params[] = $musim; }
+if ($ppkId) { $where[] = 'x.ppk_id = ?'; $params[] = $ppkId; }
 $from = 'FROM penyaluran x JOIN ppk p ON p.id = x.ppk_id WHERE ' . implode(' AND ', $where);
 
 $pdo = db();
@@ -46,15 +52,15 @@ $backup = status_backup(senarai_backup());
 /* ---------- Pautan (parameter sama seperti penapis modul Rekod / Laporan) ---------- */
 $wilayahNama = array_column($wilayahList, 'nama', 'id');
 $tapisAsas = ($skop === 'semasa' ? ['status' => 'AKTIF'] : ['jenis' => 'ASAL'])
-           + array_filter(['wilayah' => $wilayahId ?: null, 'musim' => $musim !== '' ? $musim : null], fn($v) => $v !== null);
+           + array_filter(['wilayah' => $wilayahId ?: null, 'ppk' => $ppkId ?: null, 'musim' => $musim !== '' ? $musim : null], fn($v) => $v !== null);
 $urlRekod = fn(array $tambah = []) => 'penyaluran.php?' . http_build_query(array_merge($tapisAsas, $tambah));
-$urlDash = fn(array $ubah) => '?' . http_build_query(array_filter(array_merge(['skop' => $skop, 'wilayah' => $wilayahId ?: '', 'musim' => $musim], $ubah), fn($v) => $v !== '' && $v !== null));
+$urlDash = fn(array $ubah) => '?' . http_build_query(array_filter(array_merge(['skop' => $skop, 'wilayah' => $wilayahId ?: '', 'ppk' => $ppkId ?: '', 'musim' => $musim], $ubah), fn($v) => $v !== '' && $v !== null));
 $urlLaporan = 'laporan.php?' . http_build_query(array_filter(['jenis' => 'ringkasan', 'skop' => $skop, 'wilayah' => $wilayahId ?: null]));
 
 $hari = ['Ahad', 'Isnin', 'Selasa', 'Rabu', 'Khamis', 'Jumaat', 'Sabtu'];
 $bulan = [1 => 'Januari', 'Februari', 'Mac', 'April', 'Mei', 'Jun', 'Julai', 'Ogos', 'September', 'Oktober', 'November', 'Disember'];
 $tarikh = $hari[(int)date('w')] . ', ' . date('j') . ' ' . $bulan[(int)date('n')] . ' ' . date('Y');
-$tapisan = array_filter([$wilayahId ? $wilayahNama[$wilayahId] : null, $musim !== '' ? "Musim $musim" : null]);
+$tapisan = array_filter([$wilayahId ? $wilayahNama[$wilayahId] : null, $ppkId ? $ppkInfo[$ppkId]['kod'] . ' ' . $ppkInfo[$ppkId]['nama'] : null, $musim !== '' ? "Musim $musim" : null]);
 $adaData = (int)$k['n'] > 0;
 
 $chartData = [
@@ -83,9 +89,16 @@ require __DIR__ . '/includes/header.php';
   </div>
   <input type="hidden" name="skop" value="<?= e($skop) ?>">
   <label class="dash-medan"><span>Wilayah</span>
-    <select name="wilayah" class="form-select form-select-sm">
+    <select name="wilayah" id="dashWilayah" class="form-select form-select-sm">
       <option value="">Semua wilayah</option>
       <?php foreach ($wilayahList as $w): ?><option value="<?= (int)$w['id'] ?>"<?= $wilayahId === (int)$w['id'] ? ' selected' : '' ?>><?= e($w['nama']) ?></option><?php endforeach; ?>
+    </select></label>
+  <label class="dash-medan dash-medan-ppk"><span>PPK</span>
+    <select name="ppk" id="dashPpk" class="form-select form-select-sm">
+      <option value="">Semua PPK</option>
+      <?php foreach ($wilayahList as $w): ?><optgroup label="<?= e($w['nama']) ?>" data-wilayah="<?= (int)$w['id'] ?>">
+        <?php foreach ($ppkList as $p): if ((int)$p['wilayah_id'] !== (int)$w['id']) continue; ?><option value="<?= (int)$p['id'] ?>"<?= $ppkId === (int)$p['id'] ? ' selected' : '' ?>><?= e($p['kod'] . ' ' . $p['nama']) ?></option><?php endforeach; ?>
+      </optgroup><?php endforeach; ?>
     </select></label>
   <label class="dash-medan"><span>Musim mula</span>
     <select name="musim" class="form-select form-select-sm">
@@ -94,7 +107,7 @@ require __DIR__ . '/includes/header.php';
     </select></label>
   <button class="btn btn-sipadi btn-sm">Tapis</button>
   <?php if ($tapisan): ?>
-    <a class="btn btn-outline-secondary btn-sm" href="<?= e($urlDash(['wilayah' => '', 'musim' => ''])) ?>">Set semula</a>
+    <a class="btn btn-outline-secondary btn-sm" href="<?= e($urlDash(['wilayah' => '', 'ppk' => '', 'musim' => ''])) ?>">Set semula</a>
     <span class="dash-tapisan"><i class="bi bi-funnel" aria-hidden="true"></i> <?= e(implode(' · ', $tapisan)) ?></span>
   <?php endif; ?>
 </form>
@@ -118,7 +131,7 @@ require __DIR__ . '/includes/header.php';
 
 <?php if (!$adaData): ?>
   <div class="card card-body text-center text-muted py-5 mb-3"><i class="bi bi-inbox fs-2 mb-2" aria-hidden="true"></i>Tiada rekod penyaluran untuk penapis ini.
-    <div class="mt-2"><a href="<?= e($urlDash(['wilayah' => '', 'musim' => ''])) ?>">Set semula penapis</a></div></div>
+    <div class="mt-2"><a href="<?= e($urlDash(['wilayah' => '', 'ppk' => '', 'musim' => ''])) ?>">Set semula penapis</a></div></div>
 <?php else: ?>
 <div class="row g-3 mb-3">
   <div class="col-xl-8">
@@ -140,7 +153,7 @@ require __DIR__ . '/includes/header.php';
           </a></li>
         <?php endforeach; ?>
       </ul>
-      <?php if ($wilayahId): ?><p class="dash-nota dash-nota-balut mt-3 mb-0">Penapis wilayah aktif. <a class="dash-nota" href="<?= e($urlDash(['wilayah' => ''])) ?>">Papar semua wilayah</a> untuk perbandingan.</p><?php endif; ?>
+      <?php if ($wilayahId): ?><p class="dash-nota dash-nota-balut mt-3 mb-0">Penapis wilayah aktif. <a class="dash-nota" href="<?= e($urlDash(['wilayah' => '', 'ppk' => ''])) ?>">Papar semua wilayah</a> untuk perbandingan.</p><?php endif; ?>
     </div></section>
   </div>
 </div>
@@ -216,6 +229,20 @@ $extraScripts = <<<HTML
 <script>
 (function () {
   const D = $json;
+  // Penapis PPK ikut wilayah: hanya PPK dalam wilayah dipilih dipaparkan; pilihan tidak sepadan dikosongkan
+  (function () {
+    const w = document.getElementById('dashWilayah'), p = document.getElementById('dashPpk');
+    if (!w || !p) return;
+    const tapis = () => {
+      p.querySelectorAll('optgroup').forEach(g => {
+        const ok = !w.value || g.dataset.wilayah === w.value;
+        g.hidden = !ok; g.disabled = !ok;
+      });
+      const pilih = p.selectedOptions[0];
+      if (pilih && pilih.parentElement.tagName === 'OPTGROUP' && pilih.parentElement.disabled) p.value = '';
+    };
+    w.addEventListener('change', tapis); tapis();
+  })();
   // Baris jadual model boleh diklik (pautan sebenar kekal dalam sel pertama untuk papan kekunci)
   document.querySelectorAll('tr.dash-baris-pautan').forEach(tr => tr.addEventListener('click', e => { if (!e.target.closest('a')) location.href = tr.dataset.href; }));
   if (!window.Chart || !document.getElementById('cMusim')) return;
