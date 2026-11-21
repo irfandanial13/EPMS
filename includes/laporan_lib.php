@@ -228,7 +228,7 @@ function format_sel($v, string $fmt): string
 
 function render_report(array $rep): string
 {
-    $h = '<div class="table-wrap"><table class="table table-bordered table-sm table-data mb-0"><thead>';
+    $h = '<div class="table-wrap table-scroll"><table class="table table-bordered table-sm table-data mb-0"><thead>';
     foreach ($rep['head'] as $row) {
         $h .= '<tr>';
         foreach ($row as $c) {

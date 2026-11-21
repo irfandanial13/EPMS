@@ -114,7 +114,7 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
 </div>
 <?php if ($errors): ?><div role="alert" tabindex="-1" id="ringkasanRalat" class="op-ralat alert alert-danger"><b><i class="bi bi-exclamation-octagon" aria-hidden="true"></i> Rekod tidak disimpan. Sila betulkan:</b><ul class="mb-0 mt-1"><?php foreach ($errors as $er): ?><li><?= e($er) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
-<form method="post" class="card op-borang" id="borangRekod" aria-label="<?= e($pageTitle) ?>">
+<form method="post" class="card op-borang" id="borangRekod" aria-label="<?= e($pageTitle) ?>" data-validasi>
   <?= csrf_field() ?>
   <input type="hidden" name="kembali" value="<?= e($kembali) ?>">
 
@@ -212,7 +212,8 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
         <div class="form-text">Kira = Luas × kadar (RM/Ha).</div>
       </div>
       <div class="col-12">
-        <div class="op-jumlah" aria-live="polite"><span>Jumlah penyaluran rekod ini</span><strong id="jumlahRekod">RM 0.00</strong><small id="jumlahPecahan"></small></div>
+        <div class="op-jumlah" aria-live="polite" aria-readonly="true" title="Dikira automatik daripada Sewaan + Modal Operasi; tidak boleh diedit"><span>Jumlah penyaluran rekod ini</span><strong id="jumlahRekod">RM 0.00</strong><small id="jumlahPecahan"></small>
+          <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikira automatik</span></div>
       </div>
     </div>
   </section>

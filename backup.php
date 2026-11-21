@@ -86,10 +86,18 @@ if (isset($_GET['pulih']) && backup_nama_sah((string)$_GET['pulih'])) {
 }
 $saiz = fn($b) => $b >= 1048576 ? number_format($b / 1048576, 2) . ' MB' : number_format($b / 1024, 1) . ' KB';
 
-$pageTitle = 'Backup';
+$pageTitle = 'Backup & Restore';
 require __DIR__ . '/includes/header.php';
 ?>
-<h1 class="page-title mb-3"><i class="bi bi-database-check"></i> Backup &amp; Restore</h1>
+<div class="op-kepala">
+  <div>
+    <h1 class="page-title">Backup &amp; Restore</h1>
+    <p class="op-sub">Salinan penuh pangkalan data, semakan integriti, muat turun dan pemulihan.</p>
+  </div>
+  <div class="op-tindakan no-print">
+    <a class="btn btn-sipadi btn-sm" href="#borang-backup"><i class="bi bi-database-down" aria-hidden="true"></i> Backup Sekarang</a>
+  </div>
+</div>
 
 <?php foreach ($status['amaran'] as [$jenisAmaran, $mesejAmaran]): ?>
 <div class="alert alert-<?= $jenisAmaran ?> py-2 small mb-2"><i class="bi bi-exclamation-triangle"></i> <?= e($mesejAmaran) ?></div>
@@ -101,7 +109,7 @@ require __DIR__ . '/includes/header.php';
     <?php if ($t): ?>
       <div class="value fs-6"><?= e(date('d/m/Y H:i', strtotime($t['dicipta']))) ?></div>
       <div class="sub"><?= e($umur($t['dicipta'])) ?> · <?= e(BACKUP_JENIS[$t['jenis']] ?? $t['jenis']) ?> ·
-        <?= $sah ? '<span class="badge text-bg-success">Sah</span>' : '<span class="badge text-bg-danger">Rosak</span>' ?></div>
+        <?= $sah ? '<span class="st-badge st-hijau">Sah</span>' : '<span class="st-badge st-merah">Rosak</span>' ?></div>
     <?php else: ?><div class="value fs-6 text-danger">Tiada</div><?php endif; ?>
   </div></div>
   <?php $j = $status['jadual']; ?>
@@ -137,7 +145,7 @@ require __DIR__ . '/includes/header.php';
       <thead><tr><th class="text-start">Jadual</th><th class="num">Dijangka</th><th class="num">Selepas restore</th><th>Status</th></tr></thead>
       <tbody><?php foreach ($hasil['semakan'] as $t => $s): ?>
         <tr><td><?= e($t) ?></td><td class="num"><?= nint($s['jangka']) ?></td><td class="num"><?= $s['sebenar'] === null ? '-' : nint($s['sebenar']) ?></td>
-          <td><?= $s['ok'] ? '<span class="badge text-bg-success">Sepadan</span>' : '<span class="badge text-bg-danger">Tidak sepadan</span>' ?></td></tr>
+          <td><?= $s['ok'] ? '<span class="st-badge st-hijau">Sepadan</span>' : '<span class="st-badge st-merah">Tidak sepadan</span>' ?></td></tr>
       <?php endforeach; ?></tbody>
     </table>
     <?php endif; ?>
@@ -155,14 +163,14 @@ require __DIR__ . '/includes/header.php';
       <code><?= e($pilihPulih['fail']) ?></code> bertarikh <b><?= e($pilihPulih['dicipta']) ?></b>.
       Semua perubahan selepas tarikh itu akan hilang. Backup keadaan semasa akan dibuat secara automatik dahulu.</p>
     <?php if ($pilihPulih['jadual']): ?>
-      <p class="small mb-2">Kandungan backup: <?php foreach ($pilihPulih['jadual'] as $t => $n) echo '<span class="badge text-bg-light border me-1">' . e($t) . ': ' . nint($n) . '</span>'; ?></p>
+      <p class="small mb-2">Kandungan backup: <?php foreach ($pilihPulih['jadual'] as $t => $n) echo '<span class="st-badge st-kelabu me-1">' . e($t) . ': ' . nint($n) . '</span>'; ?></p>
     <?php endif; ?>
-    <form method="post" class="row g-2 align-items-end" autocomplete="off">
+    <form method="post" class="row g-2 align-items-end" autocomplete="off" data-validasi aria-label="Sahkan restore">
       <?= csrf_field() ?><input type="hidden" name="aksi" value="pulih"><input type="hidden" name="fail" value="<?= e($pilihPulih['fail']) ?>">
-      <div class="col-sm-4"><label class="form-label small mb-1">Taip <b>PULIHKAN</b></label>
-        <input name="pengesahan" class="form-control form-control-sm" required pattern="PULIHKAN"></div>
-      <div class="col-sm-4"><label class="form-label small mb-1">Kata laluan anda</label>
-        <input name="katalaluan" type="password" class="form-control form-control-sm" required autocomplete="current-password"></div>
+      <div class="col-sm-4"><label class="form-label small mb-1" for="plPengesahan">Taip <b>PULIHKAN</b></label>
+        <input name="pengesahan" id="plPengesahan" class="form-control form-control-sm" required pattern="PULIHKAN" title="Taip PULIHKAN (huruf besar) untuk mengesahkan."></div>
+      <div class="col-sm-4"><label class="form-label small mb-1" for="plKatalaluan">Kata laluan anda</label>
+        <input name="katalaluan" id="plKatalaluan" type="password" class="form-control form-control-sm" required autocomplete="current-password"></div>
       <div class="col-sm-4 d-flex gap-2">
         <button class="btn btn-danger btn-sm" onclick="return confirm('Teruskan restore? Tindakan ini menggantikan semua data semasa.')">Pulihkan</button>
         <a href="backup.php" class="btn btn-outline-secondary btn-sm">Batal</a></div>
@@ -173,12 +181,16 @@ require __DIR__ . '/includes/header.php';
 
 <div class="row g-3">
   <div class="col-lg-4">
-    <form method="post" class="card card-body">
+    <form method="post" class="card op-borang" id="borang-backup" aria-label="Buat backup sekarang">
       <?= csrf_field() ?><input type="hidden" name="aksi" value="buat">
-      <h2 class="h6">Buat backup sekarang</h2>
-      <p class="small text-muted mb-2">Salinan penuh pangkalan data (semua jadual) akan disimpan dalam pelayan.</p>
-      <input name="catatan" class="form-control form-control-sm mb-2" maxlength="200" placeholder="Catatan (pilihan)">
-      <button class="btn btn-sipadi btn-sm"><i class="bi bi-database-down"></i> Backup Sekarang</button>
+      <div class="op-seksyen op-seksyen-tunggal">
+        <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-database-down" aria-hidden="true"></i></span>
+          <div><h2>Buat backup sekarang</h2><p>Salinan penuh pangkalan data (semua jadual) disimpan dalam pelayan.</p></div></div>
+        <div><label class="form-label" for="bkCatatan">Catatan <span class="text-muted fw-normal">(pilihan)</span></label>
+          <input name="catatan" id="bkCatatan" class="form-control" maxlength="200"></div>
+      </div>
+      <div class="op-bar-tindakan"><span class="op-bar-nota">Mengambil beberapa saat.</span>
+        <button class="btn btn-sipadi"><i class="bi bi-database-down" aria-hidden="true"></i> Backup Sekarang</button></div>
     </form>
     <div class="card card-body mt-3 small text-muted">
       <b class="text-body">Nota</b>
@@ -190,10 +202,10 @@ require __DIR__ . '/includes/header.php';
     </div>
   </div>
   <div class="col-lg-8">
-    <div class="card"><div class="table-wrap">
+    <div class="card"><div class="table-wrap table-scroll">
       <table class="table table-sm table-hover table-data mb-0">
         <thead><tr><th class="text-start">Tarikh &amp; Masa</th><th class="text-start">Jenis</th><th class="text-start">Oleh</th>
-          <th class="num">Saiz</th><th class="num">Rekod Penyaluran</th><th>Integriti</th><th></th></tr></thead>
+          <th class="num">Saiz</th><th class="num">Rekod Penyaluran</th><th>Integriti</th><th><span class="visually-hidden">Tindakan</span></th></tr></thead>
         <tbody>
         <?php if (!$list): ?><tr><td colspan="7" class="text-center text-muted py-4">Tiada backup lagi.</td></tr><?php endif; ?>
         <?php foreach ($list as $b): $s = semak_fail_backup($b['fail']); ?>
@@ -204,10 +216,12 @@ require __DIR__ . '/includes/header.php';
             <td><?= e($b['oleh']) ?></td>
             <td class="num"><?= $saiz($b['saiz']) ?></td>
             <td class="num"><?= isset($b['jadual']['penyaluran']) ? nint($b['jadual']['penyaluran']) : '-' ?></td>
-            <td><?= $s['ok'] ? '<span class="badge text-bg-success">Sah</span>' : '<span class="badge text-bg-danger" title="' . e($s['mesej']) . '">Rosak</span>' ?></td>
+            <td><?= $s['ok'] ? '<span class="st-badge st-hijau">Sah</span>' : '<span class="st-badge st-merah" title="' . e($s['mesej']) . '">Rosak</span>' ?></td>
             <td class="text-nowrap">
-              <a class="btn btn-sm btn-outline-primary py-0" href="?muat=<?= e(urlencode($b['fail'])) ?>" title="Muat turun"><i class="bi bi-download"></i></a>
-              <?php if ($s['ok']): ?><a class="btn btn-sm btn-outline-danger py-0" href="?pulih=<?= e(urlencode($b['fail'])) ?>" title="Pulihkan"><i class="bi bi-arrow-counterclockwise"></i></a><?php endif; ?>
+              <div class="op-tindakan-baris">
+              <a class="btn op-btn-ikon op-btn-edit" href="?muat=<?= e(urlencode($b['fail'])) ?>" title="Muat turun" aria-label="Muat turun <?= e($b['fail']) ?>"><i class="bi bi-download" aria-hidden="true"></i></a>
+              <?php if ($s['ok']): ?><a class="btn op-btn-ikon op-btn-padam" href="?pulih=<?= e(urlencode($b['fail'])) ?>" title="Pulihkan" aria-label="Pulihkan <?= e($b['fail']) ?>"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></a><?php endif; ?>
+              </div>
             </td>
           </tr>
         <?php endforeach; ?>

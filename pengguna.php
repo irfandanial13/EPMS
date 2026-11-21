@@ -56,41 +56,68 @@ $list = db()->query('SELECT id, username, nama, created_at FROM pengguna ORDER B
 $pageTitle = 'Pengguna';
 require __DIR__ . '/includes/header.php';
 ?>
-<h1 class="page-title mb-3"><i class="bi bi-people"></i> Pengguna (Admin)</h1>
+<?php $wajib = '<span class="op-wajib" aria-hidden="true">*</span>'; ?>
+<div class="op-kepala">
+  <div>
+    <h1 class="page-title">Pengguna</h1>
+    <p class="op-sub">Akaun pentadbir sistem. Pengguna baharu wajib menukar kata laluan pada log masuk pertama.</p>
+  </div>
+  <div class="op-tindakan no-print">
+    <a class="btn btn-sipadi btn-sm" href="#borang-tambah"><i class="bi bi-person-plus" aria-hidden="true"></i> Tambah Admin</a>
+  </div>
+</div>
 <div class="row g-3">
   <div class="col-lg-7">
     <div class="card"><div class="table-wrap">
-      <table class="table table-sm table-data mb-0">
-        <thead><tr><th class="text-start">Nama Pengguna</th><th class="text-start">Nama</th><th class="text-start">Didaftar</th><th></th></tr></thead>
+      <table class="table table-sm table-hover table-data mb-0">
+        <thead><tr><th class="text-start">Nama Pengguna</th><th class="text-start">Nama</th><th class="text-start">Didaftar</th><th><span class="visually-hidden">Tindakan</span></th></tr></thead>
         <tbody>
         <?php foreach ($list as $u): ?>
-          <tr><td><?= e($u['username']) ?></td><td><?= e($u['nama']) ?></td><td><?= e(date('d/m/Y', strtotime($u['created_at']))) ?></td>
-            <td><?php if ($u['id'] != $me['id']): ?>
+          <tr><td class="fw-semibold"><?= e($u['username']) ?></td><td><?= e($u['nama']) ?></td><td><?= e(date('d/m/Y', strtotime($u['created_at']))) ?></td>
+            <td><div class="op-tindakan-baris"><?php if ($u['id'] != $me['id']): ?>
               <form method="post" onsubmit="return confirm('Padam pengguna ini?')"><?= csrf_field() ?>
                 <input type="hidden" name="aksi" value="padam"><input type="hidden" name="id" value="<?= $u['id'] ?>">
-                <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form>
-              <?php else: ?><span class="badge text-bg-success">Anda</span><?php endif; ?></td></tr>
+                <button class="btn op-btn-ikon op-btn-padam" title="Padam" aria-label="Padam pengguna <?= e($u['username']) ?>"><i class="bi bi-trash" aria-hidden="true"></i></button></form>
+              <?php else: ?><span class="st-badge st-hijau">Anda</span><?php endif; ?></div></td></tr>
         <?php endforeach; ?>
         </tbody>
       </table>
     </div></div>
   </div>
   <div class="col-lg-5">
-    <form method="post" class="card card-body mb-3"><?= csrf_field() ?><input type="hidden" name="aksi" value="tambah">
-      <h2 class="h6">Tambah Admin</h2>
-      <input name="username" class="form-control mb-2" placeholder="Nama pengguna" required>
-      <input name="nama" class="form-control mb-2" placeholder="Nama penuh" required>
-      <input name="password" type="password" class="form-control mb-1" placeholder="Kata laluan sementara" minlength="8" required autocomplete="new-password">
-      <div class="form-text mb-3">Min 8 aksara, huruf dan nombor. Pengguna wajib menukarnya pada log masuk pertama.</div>
-      <button class="btn btn-sipadi">Tambah</button>
+    <form method="post" class="card op-borang" id="borang-tambah" data-validasi aria-label="Tambah Admin"><?= csrf_field() ?><input type="hidden" name="aksi" value="tambah">
+      <div class="op-seksyen op-seksyen-tunggal">
+        <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-person-plus" aria-hidden="true"></i></span>
+          <div><h2>Tambah Admin</h2><p>Kata laluan sementara; wajib ditukar oleh pengguna.</p></div></div>
+        <div>
+          <div class="mb-3"><label class="form-label" for="tbUsername">Nama pengguna <?= $wajib ?></label>
+            <input name="username" id="tbUsername" class="form-control" required maxlength="50" autocomplete="off"></div>
+          <div class="mb-3"><label class="form-label" for="tbNama">Nama penuh <?= $wajib ?></label>
+            <input name="nama" id="tbNama" class="form-control" required maxlength="100"></div>
+          <div><label class="form-label" for="tbPassword">Kata laluan sementara <?= $wajib ?></label>
+            <input name="password" id="tbPassword" type="password" class="form-control" minlength="8" required autocomplete="new-password">
+            <div class="form-text">Min 8 aksara, huruf dan nombor.</div></div>
+        </div>
+      </div>
+      <div class="op-bar-tindakan"><span class="op-bar-nota"><span class="op-wajib">*</span> Medan wajib</span>
+        <button class="btn btn-sipadi"><i class="bi bi-person-plus" aria-hidden="true"></i> Tambah</button></div>
     </form>
-    <form method="post" class="card card-body" id="tukar-katalaluan"><?= csrf_field() ?><input type="hidden" name="aksi" value="tukar">
-      <h2 class="h6">Tukar Kata Laluan Saya</h2>
-      <input name="lama" type="password" class="form-control mb-2" placeholder="Kata laluan semasa" required>
-      <input name="baru" type="password" class="form-control mb-1" placeholder="Kata laluan baharu" minlength="8" required autocomplete="new-password">
-      <div class="form-text mb-2">Min 8 aksara, mengandungi huruf dan nombor.</div>
-      <input name="sahkan" type="password" class="form-control mb-3" placeholder="Sahkan kata laluan baharu" minlength="8" required>
-      <button class="btn btn-sipadi">Tukar</button>
+    <form method="post" class="card op-borang" id="tukar-katalaluan" data-validasi aria-label="Tukar Kata Laluan Saya"><?= csrf_field() ?><input type="hidden" name="aksi" value="tukar">
+      <div class="op-seksyen op-seksyen-tunggal">
+        <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-key" aria-hidden="true"></i></span>
+          <div><h2>Tukar Kata Laluan Saya</h2><p>Akaun @<?= e($me['username']) ?>.</p></div></div>
+        <div>
+          <div class="mb-3"><label class="form-label" for="tkLama">Kata laluan semasa <?= $wajib ?></label>
+            <input name="lama" id="tkLama" type="password" class="form-control" required autocomplete="current-password"></div>
+          <div class="mb-3"><label class="form-label" for="tkBaru">Kata laluan baharu <?= $wajib ?></label>
+            <input name="baru" id="tkBaru" type="password" class="form-control" minlength="8" required autocomplete="new-password">
+            <div class="form-text">Min 8 aksara, mengandungi huruf dan nombor.</div></div>
+          <div><label class="form-label" for="tkSahkan">Sahkan kata laluan baharu <?= $wajib ?></label>
+            <input name="sahkan" id="tkSahkan" type="password" class="form-control" minlength="8" required autocomplete="new-password"></div>
+        </div>
+      </div>
+      <div class="op-bar-tindakan"><span class="op-bar-nota"><span class="op-wajib">*</span> Medan wajib</span>
+        <button class="btn btn-sipadi"><i class="bi bi-key" aria-hidden="true"></i> Tukar</button></div>
     </form>
   </div>
 </div>

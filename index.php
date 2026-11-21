@@ -78,8 +78,8 @@ require __DIR__ . '/includes/header.php';
 
 <form class="card dash-penapis no-print" method="get" aria-label="Penapis dashboard">
   <div class="btn-group btn-group-sm" role="group" aria-label="Skop">
-    <a class="btn btn-outline-success<?= $skop === 'kumulatif' ? ' active' : '' ?>" href="<?= e($urlDash(['skop' => 'kumulatif'])) ?>"<?= $skop === 'kumulatif' ? ' aria-current="true"' : '' ?>>Kumulatif</a>
-    <a class="btn btn-outline-success<?= $skop === 'semasa' ? ' active' : '' ?>" href="<?= e($urlDash(['skop' => 'semasa'])) ?>"<?= $skop === 'semasa' ? ' aria-current="true"' : '' ?>>Semasa</a>
+    <a class="btn btn-outline-primary<?= $skop === 'kumulatif' ? ' active' : '' ?>" href="<?= e($urlDash(['skop' => 'kumulatif'])) ?>"<?= $skop === 'kumulatif' ? ' aria-current="true"' : '' ?>>Kumulatif</a>
+    <a class="btn btn-outline-primary<?= $skop === 'semasa' ? ' active' : '' ?>" href="<?= e($urlDash(['skop' => 'semasa'])) ?>"<?= $skop === 'semasa' ? ' aria-current="true"' : '' ?>>Semasa</a>
   </div>
   <input type="hidden" name="skop" value="<?= e($skop) ?>">
   <label class="dash-medan"><span>Wilayah</span>

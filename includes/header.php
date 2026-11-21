@@ -8,13 +8,14 @@ $pageTitle = $pageTitle ?? '';
 $active = basename($_SERVER['SCRIPT_NAME'], '.php');
 if ($active === 'penyaluran_form') $active = 'penyaluran';
 
-// Menu ikut modul sebenar sahaja (fail => [label, ikon]), dikumpul ikut kategori
+// Menu ikut modul sebenar sahaja (fail => [label, ikon]), disusun ikut aliran kerja harian (UI-05):
+// pantau → urus penyaluran → rujuk direktori → laporan → pentadbiran sistem
 $menu = [
-    'Utama'       => ['index' => ['Dashboard', 'speedometer2']],
-    'Operasi'     => ['penyaluran' => ['Rekod Penyaluran', 'table']],
-    'Analisis'    => ['laporan' => ['Laporan', 'file-earmark-bar-graph']],
-    'Data Induk'  => ['ppk' => ['PPK', 'building']],
-    'Pentadbiran' => ['pengguna' => ['Pengguna', 'people'], 'backup' => ['Backup', 'database-check']],
+    'Utama'                => ['index' => ['Dashboard', 'speedometer2']],
+    'Pengurusan Penyaluran' => ['penyaluran' => ['Rekod Penyaluran', 'table']],
+    'Direktori'            => ['ppk' => ['Direktori PPK', 'building']],
+    'Laporan & Analisis'   => ['laporan' => ['Laporan', 'file-earmark-bar-graph']],
+    'Pentadbiran Sistem'   => ['pengguna' => ['Pengguna', 'people'], 'backup' => ['Backup & Restore', 'database-check']],
 ];
 $menuAktif = null;
 foreach ($menu as $item) if (isset($item[$active])) $menuAktif = $item[$active][0];
@@ -31,7 +32,7 @@ $inisial = mb_strtoupper(implode('', array_map(fn($w) => mb_substr($w, 0, 1), ar
 <title><?= e(($pageTitle ? "$pageTitle · " : '') . APP_NAME) ?></title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-<link href="assets/app.css" rel="stylesheet">
+<link href="assets/app.css?v=<?= (int)@filemtime(__DIR__ . "/../assets/app.css") ?>" rel="stylesheet">
 <script>
   // Pulihkan keadaan sidebar sebelum paparan pertama (elak "kelipan"). Tablet & laptop (768–1439px) lalai: mod ikon.
   try { var s = localStorage.getItem('epms-sidebar');

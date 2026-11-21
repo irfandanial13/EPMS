@@ -88,7 +88,7 @@ require __DIR__ . '/includes/header.php';
   </div>
   <div class="op-tindakan no-print">
     <a class="btn btn-sipadi btn-sm" href="penyaluran_form.php<?= $qsKembali !== '' ? '?kembali=' . e(urlencode($qsKembali)) : '' ?>"><i class="bi bi-plus-lg" aria-hidden="true"></i> Tambah Rekod</a>
-    <a class="btn btn-success btn-sm" href="?<?= e($qsBase . '&eksport=xlsx') ?>"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Eksport Excel</a>
+    <a class="btn btn-outline-primary btn-sm" href="?<?= e($qsBase . '&eksport=xlsx') ?>"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Eksport Excel</a>
     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Cetak</button>
   </div>
 </div>
@@ -155,7 +155,7 @@ require __DIR__ . '/includes/header.php';
 <?php endif; ?>
 
 <div class="card op-jadual-kad">
-  <div class="table-wrap">
+  <div class="table-wrap table-scroll">
     <table class="table table-sm table-hover table-data op-jadual mb-0">
       <thead><tr>
         <th class="op-lajur-butiran no-print"><span class="visually-hidden">Butiran</span></th>
@@ -174,7 +174,7 @@ require __DIR__ . '/includes/header.php';
           <td class="op-lajur-butiran no-print"><button type="button" class="btn op-btn-ikon op-togol-butiran" data-bs-toggle="collapse" data-bs-target="#<?= $bid ?>"
               aria-expanded="false" aria-controls="<?= $bid ?>" title="Lihat butiran" aria-label="Lihat butiran rekod <?= e($ringkas) ?>"><i class="bi bi-chevron-right" aria-hidden="true"></i></button></td>
           <td class="text-start op-ppk"><span class="op-ppk-kod"><?= e($r['ppk_kod']) ?></span><span class="op-ppk-nama"><?= e($r['ppk_nama']) ?></span></td>
-          <td><?= $r['jenis'] === 'SAMBUNG' ? '<span class="badge op-badge-sambung">Sambung</span>' : 'Asal' ?></td>
+          <td><?= $r['jenis'] === 'SAMBUNG' ? '<span class="st-badge st-biru">Sambung</span>' : '<span class="st-badge st-kelabu">Asal</span>' ?></td>
           <td class="text-nowrap"><?= e($r['musim']) ?></td>
           <td class="text-start"><?= e($r['no_blok']) ?></td>
           <td class="text-start"><?= e($r['projek']) ?></td>
@@ -186,7 +186,7 @@ require __DIR__ . '/includes/header.php';
           <td class="text-nowrap"><?= e($r['musim_pelaksanaan']) ?></td>
           <td><?= e($r['fasa']) ?></td>
           <td class="text-nowrap"><?= e($r['musim_tamat']) ?></td>
-          <td><span class="badge badge-<?= $r['status'] ?>"><?= $r['status'] ?></span></td>
+          <td><span class="st-badge <?= $r['status'] === 'AKTIF' ? 'st-hijau' : 'st-kelabu' ?>"><?= $r['status'] === 'AKTIF' ? 'Aktif' : 'Tamat' ?></span></td>
           <td class="op-lajur-tindakan no-print">
             <div class="op-tindakan-baris">
               <a class="btn op-btn-ikon op-btn-edit" href="penyaluran_form.php?id=<?= $r['id'] . e($kembali) ?>" title="Edit" aria-label="Edit rekod <?= e($ringkas) ?>"><i class="bi bi-pencil" aria-hidden="true"></i></a>

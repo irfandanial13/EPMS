@@ -31,33 +31,41 @@
   --epms-hijau: #105E16;
   --epms-emas: #F4B801;               /* aksen sahaja */
 
+  /* UI-05 "Agriculture Modern – Enterprise": Navy/Slate (struktur) + Deep Pine Green (aksen/tindakan) */
+  --epms-navy: #16263D;                        /* sidebar & elemen struktur */
+  --epms-navy-2: #1F3350;                      /* hover pada navy */
+  --epms-navy-teks: #C9D3E0;                   /* teks atas navy (kontras AA) */
+  --epms-navy-redup: #8C9BB0;                  /* tajuk kumpulan atas navy */
+
   /* Warna global */
-  --epms-primary: var(--epms-hijau);          /* Agriculture Green */
-  --epms-primary-rgb: 16, 94, 22;
-  --epms-primary-hover: var(--epms-hijau-gelap);
-  --epms-primary-subtle: #E3EFE4;
-  --epms-primary-border: #A9CBAC;
-  --epms-secondary: #5B6470;                   /* Neutral Grey */
-  --epms-secondary-rgb: 91, 100, 112;
-  --epms-bg: #F6F7F4;                          /* Soft Off-White */
+  --epms-primary: #1D5A43;                     /* Deep Pine Green — butang utama, pautan */
+  --epms-primary-rgb: 29, 90, 67;
+  --epms-primary-hover: #154634;
+  --epms-primary-subtle: #E6F0EB;
+  --epms-primary-border: #A7C9B9;
+  --epms-secondary: #5A6578;                   /* Slate Grey */
+  --epms-secondary-rgb: 90, 101, 120;
+  --epms-bg: #F4F6F8;                          /* kelabu sangat cerah */
   --epms-surface: #FFFFFF;
-  --epms-text: #1F2933;                        /* Dark Charcoal */
-  --epms-text-rgb: 31, 41, 51;
-  --epms-border: #DCE2DC;
+  --epms-text: #1E293B;                        /* Dark Slate */
+  --epms-text-rgb: 30, 41, 59;
+  --epms-border: #DFE4EA;
   --epms-success: #2E7D32;  --epms-success-rgb: 46, 125, 50;
   --epms-warning: #C98A00;  --epms-warning-rgb: 201, 138, 0;
   --epms-danger:  #B42318;  --epms-danger-rgb: 180, 35, 24;
   --epms-info:    #0E7490;  --epms-info-rgb: 14, 116, 144;
 
-  /* Permukaan jadual */
-  --epms-table-head: #E8EFE9;
-  --epms-table-sub: #EEF3EF;
-  --epms-table-total: #D6E5DA;
+  /* Permukaan jadual (slate neutral) */
+  --epms-table-head: #EEF1F5;
+  --epms-table-head-teks: #334155;
+  --epms-table-sub: #F2F5F8;
+  --epms-table-total: #E2E8F0;
+  --epms-table-hover: #EEF4F1;                 /* sorotan baris (hijau pine sangat lembut) */
 
   /* Tipografi & bentuk */
   --epms-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --epms-radius: .5rem;
-  --epms-shadow: 0 1px 3px rgba(16, 24, 16, .08);
+  --epms-shadow: 0 1px 2px rgba(15, 23, 42, .04);   /* bayang nipis; pemisahan utama melalui border 1px */
 
   /* Alias lama (dikekalkan untuk keserasian) */
   --sipadi: var(--epms-primary);
@@ -81,10 +89,10 @@
   --bs-danger: var(--epms-danger);       --bs-danger-rgb: var(--epms-danger-rgb);
   --bs-info: var(--epms-info);           --bs-info-rgb: var(--epms-info-rgb);
   --bs-link-color: var(--epms-primary);  --bs-link-color-rgb: var(--epms-primary-rgb);
-  --bs-link-hover-color: var(--epms-primary-hover); --bs-link-hover-color-rgb: 2, 55, 5;
+  --bs-link-hover-color: var(--epms-primary-hover); --bs-link-hover-color-rgb: 21, 70, 52;
   --bs-focus-ring-color: rgba(var(--epms-primary-rgb), .25);
   /* Alert / badge "subtle" */
-  --bs-primary-text-emphasis: #0B3F0F; --bs-primary-bg-subtle: var(--epms-primary-subtle); --bs-primary-border-subtle: var(--epms-primary-border);
+  --bs-primary-text-emphasis: #123B2C; --bs-primary-bg-subtle: var(--epms-primary-subtle); --bs-primary-border-subtle: var(--epms-primary-border);
   --bs-success-text-emphasis: #1E5A22; --bs-success-bg-subtle: #E4F1E5; --bs-success-border-subtle: #B5D6B7;
   --bs-warning-text-emphasis: #6B4E00; --bs-warning-bg-subtle: #FDF3D3; --bs-warning-border-subtle: #F2D98A;
   --bs-danger-text-emphasis: #7A1A12;  --bs-danger-bg-subtle: #FBE7E5;  --bs-danger-border-subtle: #F0B8B2;
@@ -181,8 +189,9 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { font-weight: 600; line-he
 
 /* Sidebar */
 .app-sidebar { --bs-offcanvas-width: 280px; }
-.app-sidebar-panel { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--epms-surface); border-right: 1px solid var(--epms-border); }
-.app-sidebar-brand { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; padding: 1.25rem 1.25rem 1rem; }
+.app-sidebar-panel { display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--epms-navy); border-right: 1px solid var(--epms-navy); }
+/* Logo rasmi berteks gelap: dipaparkan atas panel putih supaya kekal jelas di atas sidebar navy (UI-05) */
+.app-sidebar-brand { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; padding: 1.25rem 1.25rem 1rem; background: var(--epms-surface); border-bottom: 1px solid var(--epms-border); }
 .app-sidebar-brand::after { content: ''; position: absolute; left: 1.25rem; bottom: 0; width: 28px; height: 3px; border-radius: 3px; background: var(--epms-emas); }
 .app-brand-link { display: block; text-decoration: none; min-width: 0; }
 .app-logo-sidebar { display: block; width: 168px; max-width: 100%; height: auto; transition: width .2s ease; }
@@ -190,18 +199,22 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { font-weight: 600; line-he
 
 .app-sidebar-nav { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: .5rem 0 1rem; }
 .app-nav-kumpulan { padding-top: .75rem; }
-.app-nav-tajuk { display: block; padding: 0 1.5rem .35rem; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--epms-secondary); white-space: nowrap; }
+.app-nav-tajuk { display: block; padding: 0 1.5rem .35rem; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--epms-navy-redup); white-space: nowrap; }
 .app-nav-link { position: relative; display: flex; align-items: center; gap: .75rem; margin: .125rem .75rem; padding: .55rem .75rem; border-radius: .5rem;
-  color: var(--epms-text); font-size: .92rem; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background-color .15s, color .15s; }
-.app-nav-link i { flex: 0 0 1.25rem; font-size: 1.1rem; text-align: center; color: var(--epms-secondary); transition: color .15s; }
-.app-nav-link:hover { background: var(--epms-table-sub); color: var(--epms-primary-hover); }
-.app-nav-link:hover i { color: var(--epms-primary); }
-.app-nav-link:focus-visible { outline: 2px solid var(--epms-primary); outline-offset: 1px; }
-.app-nav-link.active { background: var(--epms-primary-subtle); color: var(--epms-primary); font-weight: 600; }
-.app-nav-link.active i { color: var(--epms-primary); }
-.app-nav-link.active::before { content: ''; position: absolute; left: -.75rem; top: .45rem; bottom: .45rem; width: 3px; border-radius: 0 3px 3px 0; background: var(--epms-primary); }
+  color: var(--epms-navy-teks); font-size: .92rem; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background-color .15s, color .15s; }
+.app-nav-link i { flex: 0 0 1.25rem; font-size: 1.1rem; text-align: center; color: var(--epms-navy-redup); transition: color .15s; }
+.app-nav-link:hover { background: var(--epms-navy-2); color: #fff; }
+.app-nav-link:hover i { color: #fff; }
+.app-nav-link:focus-visible { outline: 2px solid #7FC4A3; outline-offset: 1px; }
+.app-nav-link.active { background: rgba(255, 255, 255, .1); color: #fff; font-weight: 600; }
+.app-nav-link.active i { color: #7FC4A3; }
+.app-nav-link.active::before { content: ''; position: absolute; left: -.75rem; top: .45rem; bottom: .45rem; width: 3px; border-radius: 0 3px 3px 0; background: #7FC4A3; }
 
-.app-sidebar-user { display: flex; align-items: center; gap: .65rem; padding: .85rem 1.25rem; border-top: 1px solid var(--epms-border); }
+.app-sidebar-user { display: flex; align-items: center; gap: .65rem; padding: .85rem 1.25rem; border-top: 1px solid rgba(255, 255, 255, .08); }
+.app-sidebar-user .app-avatar { background: rgba(255, 255, 255, .1); color: #fff; }
+.app-sidebar-user .app-user-nama { color: #fff; }
+.app-sidebar-user .app-user-id { color: var(--epms-navy-redup); }
+.sidebar-mini .app-nav-kumpulan + .app-nav-kumpulan { border-top-color: rgba(255, 255, 255, .08) !important; }
 .app-avatar { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%;
   background: var(--epms-primary-subtle); color: var(--epms-primary); font-size: .78rem; font-weight: 700; letter-spacing: .02em; }
 .app-user-teks { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
@@ -257,7 +270,7 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { font-weight: 600; line-he
 .app-logo-login { width: 100%; max-width: 300px; height: auto; display: block; margin: 0 auto; }
 .app-logo-login.app-logo-kecil { max-width: 220px; }
 .app-logo-cetak { display: none; }
-.card { border: 0; border-radius: var(--epms-radius); box-shadow: var(--epms-shadow); }
+.card { border: 1px solid var(--epms-border); border-radius: var(--epms-radius); box-shadow: var(--epms-shadow); }
 .card-header, .card-footer { background: var(--epms-surface); border-color: var(--epms-border); }
 .page-title { font-size: 1.35rem; font-weight: 600; margin: 0; }
 
@@ -266,18 +279,38 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { font-weight: 600; line-he
 .kpi .sub { font-size: .8rem; color: var(--epms-secondary); }
 
 .table-data { font-size: .82rem; }
-.table-data th { white-space: nowrap; vertical-align: middle; text-align: center; background: var(--epms-table-head) !important; font-weight: 600; }
+.table-data th { white-space: nowrap; vertical-align: middle; text-align: center; background: var(--epms-table-head) !important; color: var(--epms-table-head-teks); font-weight: 600; }
 .table-data td.num, .table-data th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table-data tr.sub td { background: var(--epms-table-sub) !important; font-weight: 600; }
 .table-data tr.total td { background: var(--epms-table-total) !important; font-weight: 700; }
 .table-data tfoot td { font-weight: 700; background: var(--epms-table-sub) !important; }
 .table-wrap { overflow-x: auto; }
 
+/* UI-05: ruang tepi & penjajaran menegak seragam untuk semua jadual data */
+.table-data > tbody > tr > td { vertical-align: middle; }
+.table-data > :not(caption) > tr > :first-child { padding-left: .75rem; }
+.table-data > :not(caption) > tr > :last-child { padding-right: .75rem; }
+/* UI-05: sorotan baris (semua jadual data) — latar lembut supaya mata tidak tersasar pada baris panjang */
+.table-data > tbody > tr:not(.sub):not(.total):not(.op-baris-butiran):hover > * { --bs-table-accent-bg: transparent; background-color: var(--epms-table-hover) !important; }
+/* UI-05: tajuk jadual melekat — jadual dibalut .table-scroll (bekas tatal sendiri, tinggi terhad) */
+.table-scroll { max-height: calc(100vh - 13rem); min-height: 12rem; overflow: auto; }
+.table-scroll > .table > thead { position: sticky; top: 0; z-index: 3; }
+.table-scroll > .table > thead th { box-shadow: inset 0 -1px 0 var(--epms-border); }
+.table-scroll > .table > thead .op-lajur-tindakan { z-index: 4; }
+
 .chart-box { position: relative; height: 300px; }
 .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 
-.badge-AKTIF { background: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); }
-.badge-TAMAT { background: #E5E8EB; color: #3F4650; }
+/* UI-05: lencana status seragam (ikut makna sebenar data; bukan teks biasa)
+   Hijau = aktif/sah/berjaya · Kelabu = tamat/asal/neutral · Biru = sambung/dalam proses · Merah = rosak/gagal */
+.st-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .22rem .55rem; border-radius: 999px; border: 1px solid transparent;
+  font-size: .72rem; font-weight: 600; line-height: 1.2; letter-spacing: .01em; white-space: nowrap; }
+.st-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.st-hijau, .badge-AKTIF { background: #E7F4EC; color: #1B5E3A; border-color: #BFE0CB; }
+.st-kelabu, .badge-TAMAT { background: #EEF1F5; color: #475569; border-color: #D5DCE5; }
+.st-biru, .op-badge-sambung { background: #E6EFFB; color: #1E4E8C; border-color: #BDD3F1; }
+.st-merah { background: #FCEBEA; color: #9B1C14; border-color: #F2C1BC; }
+.st-kuning { background: #FDF4DC; color: #7A5600; border-color: #F1DC9E; }
 
 /* =====================================================================
    UI-03 — Dashboard
@@ -415,10 +448,25 @@ a.dash-nota:hover { text-decoration: underline; }
 .op-seksyen-ikon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 34px; height: 34px; border-radius: .5rem;
   background: var(--epms-primary-subtle); color: var(--epms-primary); }
 .op-kadar-mo { flex: 0 0 auto; width: auto; max-width: 110px; }
-.op-jumlah { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem 1rem; padding: .7rem 1rem; border-radius: var(--epms-radius); background: var(--epms-primary-subtle); }
-.op-jumlah span { font-size: .85rem; color: var(--epms-primary); font-weight: 500; }
-.op-jumlah strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; color: var(--epms-primary-hover); }
+/* UI-05: medan dikira automatik (baca sahaja) — latar kelabu, tiada border input, tidak boleh diklik/diedit */
+.op-jumlah, .medan-auto { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem 1rem; padding: .7rem 1rem; border-radius: var(--epms-radius);
+  background: #EEF1F5; border: 1px dashed #CBD3DD; cursor: default; user-select: text; }
+.op-jumlah span { font-size: .85rem; color: var(--epms-secondary); font-weight: 500; }
+.op-jumlah strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; color: var(--epms-text); }
 .op-jumlah small { color: var(--epms-secondary); font-variant-numeric: tabular-nums; }
+.medan-auto-tag { display: inline-flex; align-items: center; gap: .3rem; margin-left: auto; font-size: .72rem; font-weight: 600; color: var(--epms-secondary);
+  text-transform: uppercase; letter-spacing: .04em; }
+
+/* UI-05: validasi sebaris (klien) — mesej merah betul-betul di bawah medan */
+.was-validated-live .form-control:invalid, .was-validated-live .form-select:invalid { border-color: var(--epms-danger); }
+.invalid-feedback.js-ralat { display: block; }
+
+/* UI-05: borang kecil satu lajur (PPK, Pengguna, Backup) — seksyen tanpa grid dua lajur */
+@media (min-width: 992px) { .op-seksyen.op-seksyen-tunggal { grid-template-columns: 1fr; gap: 1rem; padding: 1.25rem; } }
+.op-borang + .op-borang { margin-top: 1rem; }
+
+/* UI-05: kepala halaman seragam (kiri: tajuk + keterangan; kanan: tindakan utama) */
+.op-kepala .page-title { font-size: 1.45rem; }
 .op-bar-tindakan { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem;
   padding: .85rem 1.25rem; background: rgba(255, 255, 255, .96); backdrop-filter: blur(4px); border-top: 1px solid var(--epms-border);
   border-radius: 0 0 var(--epms-radius) var(--epms-radius); }
@@ -440,7 +488,7 @@ a.dash-nota:hover { text-decoration: underline; }
   .op-butiran { padding-left: 1rem; }
 }
 
-.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--epms-hijau-gelap); }
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--epms-navy); }
 .login-wrap .card { border-top: 4px solid var(--epms-emas); }
 
 @media print {
@@ -448,7 +496,10 @@ a.dash-nota:hover { text-decoration: underline; }
   body { background: #fff; }
   .card { box-shadow: none; }
   .table-data { font-size: 9px; }
-  .table-wrap { overflow: visible; }
+  .table-wrap, .table-scroll { overflow: visible; max-height: none; }
+  .table-scroll > .table > thead { position: static; }
+  .st-badge { border: 0; padding: 0; background: none !important; }
+  .st-badge::before { display: none; }
   @page { size: A4 landscape; margin: 10mm; }
   .app-logo-cetak { display: block; height: 14mm; width: auto; margin: 0 auto 2mm; }
   /* Layout UI-02: sidebar & header tidak dicetak; kandungan guna lebar penuh (padding sama seperti sebelum UI-02) */
