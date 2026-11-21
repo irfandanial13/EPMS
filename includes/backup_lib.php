@@ -335,6 +335,11 @@ function pulih_backup(string $fail, string $oleh): array
 
     $migrasi = pastikan_skema(db());
     $ditanda = tanda_katalaluan_lalai(db());
+    // Pautan sambungan yatim (rujuk rekod yang tiada dalam data dipulihkan) — dibuang & dilog; pautan sah kekal
+    $yatim = bersih_pautan_yatim(db());
+    app_log("Restore: {$yatim['bilangan']} pautan sambungan yatim dibuang"
+        . ($yatim['id'] ? ' (id pautan: ' . implode(',', $yatim['id']) . ')' : '')
+        . "; salinan sebelum restore: {$pra['fail']}", 'backup.log');
 
     $sebenar = kira_jadual(db());
     $semakan = [];
@@ -347,5 +352,5 @@ function pulih_backup(string $fail, string $oleh): array
     app_log("Restore selesai: $fail; integriti " . ($ok ? 'LULUS' : 'GAGAL') . '; ' . json_encode($semakan), 'backup.log');
 
     return ['ok' => $ok, 'fail' => $fail, 'pra_pulih' => $pra['fail'], 'semakan' => $semakan,
-            'migrasi' => $migrasi, 'wajib_tukar' => $ditanda];
+            'migrasi' => $migrasi, 'wajib_tukar' => $ditanda, 'pautan_yatim' => $yatim];
 }

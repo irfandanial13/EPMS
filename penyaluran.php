@@ -7,8 +7,22 @@ require_login();
 // Padam rekod — kembali ke senarai dengan penapis yang sama (parameter dibersihkan)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['aksi'] ?? '') === 'padam') {
     csrf_check();
-    db()->prepare('DELETE FROM penyaluran WHERE id = ?')->execute([(int)$_POST['id']]);
-    flash('Rekod telah dipadam.');
+    $idPadam = (int)($_POST['id'] ?? 0);
+    // Perjanjian Fasa 3 (Q2): rekod yang dipautkan tidak boleh dipadam — mesej mesra, bukan ralat DB.
+    // Semakan awal + tangkapan ralat FK 1451 (RESTRICT) sebagai sandaran jika pautan dicipta serentak.
+    $mesejPautan = 'Rekod ini tidak boleh dipadam kerana dipautkan kepada perjanjian lain (sebagai perjanjian terdahulu atau sambungan). '
+        . 'Pautan perlu dikekalkan supaya sejarah perjanjian lengkap.';
+    if (rekod_ada_pautan(db(), $idPadam)) {
+        flash($mesejPautan, 'danger');
+    } else {
+        try {
+            db()->prepare('DELETE FROM penyaluran WHERE id = ?')->execute([$idPadam]);
+            flash('Rekod telah dipadam.');
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) !== 1451) throw $e;
+            flash($mesejPautan, 'danger');
+        }
+    }
     redirect(url_senarai((string)($_POST['qs'] ?? '')));
 }
 
@@ -57,6 +71,8 @@ $page = min($page, $pages);
 $st = db()->prepare("SELECT x.*, p.kod ppk_kod, p.nama ppk_nama $from $order LIMIT $perPage OFFSET " . (($page - 1) * $perPage));
 $st->execute($params);
 $rows = $st->fetchAll();
+// Perjanjian Fasa 3: pautan bagi rekod pada halaman ini (paling banyak $perPage rekod)
+$pautan = pautan_rekod(db(), array_column($rows, 'id'));
 
 $qsBase = http_build_query(array_diff_key($f, ['page' => 1, 'eksport' => 1]));
 $qsKembali = qs_penapis(['page' => $page > 1 ? (string)$page : ''] + $f);   // penapis + halaman semasa, dibawa ke borang & padam
@@ -72,7 +88,7 @@ $labelPenapis = array_filter([
     !empty($f['ppk']) && isset($ppkInfo[(int)$f['ppk']]) ? $ppkInfo[(int)$f['ppk']]['kod'] . ' ' . $ppkInfo[(int)$f['ppk']]['nama'] : null,
     !empty($f['musim']) ? 'Musim ' . $f['musim'] : null,
     !empty($f['model']) && isset(MODELS[$f['model']]) ? 'Model ' . $f['model'] : null,
-    !empty($f['status']) && in_array($f['status'], ['AKTIF', 'TAMAT'], true) ? $f['status'] : null,
+    !empty($f['status']) && isset(LENCANA_STATUS[$f['status']]) ? 'Status ' . LENCANA_STATUS[$f['status']][0] : null,
     !empty($f['jenis']) && in_array($f['jenis'], ['ASAL', 'SAMBUNG'], true) ? ($f['jenis'] === 'ASAL' ? 'Asal' : 'Sambung') : null,
     ($f['q'] ?? '') !== '' ? '"' . $f['q'] . '"' : null,
 ]);
@@ -123,7 +139,7 @@ require __DIR__ . '/includes/header.php';
     <label class="op-medan"><span>Status</span>
       <select name="status" class="form-select form-select-sm">
         <option value="">Semua</option>
-        <?php foreach (['AKTIF', 'TAMAT'] as $s): ?><option <?= ($f['status'] ?? '') === $s ? 'selected' : '' ?>><?= $s ?></option><?php endforeach; ?>
+        <?php foreach (LENCANA_STATUS as $s => [$lbl]): ?><option value="<?= $s ?>" <?= ($f['status'] ?? '') === $s ? 'selected' : '' ?>><?= $s === 'SAMBUNG' ? 'SAMBUNG (disambung)' : $s ?></option><?php endforeach; ?>
       </select></label>
     <label class="op-medan"><span>Jenis</span>
       <select name="jenis" class="form-select form-select-sm">
@@ -169,12 +185,17 @@ require __DIR__ . '/includes/header.php';
           <?php if ($labelPenapis): ?><a href="penyaluran.php">Set semula penapis</a><?php endif; ?></td></tr>
       <?php endif; ?>
       <?php foreach ($rows as $r): $pi = $ppkInfo[$r['ppk_id']] ?? null; $bid = 'butiran-' . (int)$r['id'];
-        $ringkas = $r['ppk_kod'] . ' · ' . $r['musim'] . ' · ' . ($r['projek'] ?: '-') . ' · ' . $r['model']; ?>
+        $ringkas = $r['ppk_kod'] . ' · ' . $r['musim'] . ' · ' . ($r['projek'] ?: '-') . ' · ' . $r['model'];
+        $pdhl = $pautan['pendahulu'][$r['id']] ?? []; $smbg = $pautan['sambungan'][$r['id']] ?? [];
+        $kp = keadaan_pautan($r, count($pdhl));
+        $notaJenis = ['tiada_rekod' => ['Tiada Dalam Rekod', LABEL_TIADA_REKOD], 'lama' => ['belum dipautkan', 'Sambungan lama (import Excel): belum dipautkan'],
+                      'dipautkan' => ['← ' . count($pdhl) . ' terdahulu', 'Dipautkan kepada ' . count($pdhl) . ' perjanjian terdahulu']][$kp] ?? null; ?>
         <tr class="op-baris">
           <td class="op-lajur-butiran no-print"><button type="button" class="btn op-btn-ikon op-togol-butiran" data-bs-toggle="collapse" data-bs-target="#<?= $bid ?>"
               aria-expanded="false" aria-controls="<?= $bid ?>" title="Lihat butiran" aria-label="Lihat butiran rekod <?= e($ringkas) ?>"><i class="bi bi-chevron-right" aria-hidden="true"></i></button></td>
           <td class="text-start op-ppk"><span class="op-ppk-kod"><?= e($r['ppk_kod']) ?></span><span class="op-ppk-nama"><?= e($r['ppk_nama']) ?></span></td>
-          <td><?= $r['jenis'] === 'SAMBUNG' ? '<span class="st-badge st-biru">Sambung</span>' : '<span class="st-badge st-kelabu">Asal</span>' ?></td>
+          <td><?= $r['jenis'] === 'SAMBUNG' ? '<span class="st-badge st-biru">Sambung</span>' : '<span class="st-badge st-kelabu">Asal</span>' ?>
+            <?php if ($notaJenis): ?><span class="op-pautan-nota op-pautan-<?= e($kp) ?>" title="<?= e($notaJenis[1]) ?>"><?= e($notaJenis[0]) ?></span><?php endif; ?></td>
           <td class="text-nowrap"><?= e($r['musim']) ?></td>
           <td class="text-start"><?= e($r['no_blok']) ?></td>
           <td class="text-start"><?= e($r['projek']) ?></td>
@@ -186,7 +207,7 @@ require __DIR__ . '/includes/header.php';
           <td class="text-nowrap"><?= e($r['musim_pelaksanaan']) ?></td>
           <td><?= e($r['fasa']) ?></td>
           <td class="text-nowrap"><?= e($r['musim_tamat']) ?></td>
-          <td><span class="st-badge <?= $r['status'] === 'AKTIF' ? 'st-hijau' : 'st-kelabu' ?>"><?= $r['status'] === 'AKTIF' ? 'Aktif' : 'Tamat' ?></span></td>
+          <td><?= lencana_status($r['status']) ?></td>
           <td class="op-lajur-tindakan no-print">
             <div class="op-tindakan-baris">
               <a class="btn op-btn-ikon op-btn-edit" href="penyaluran_form.php?id=<?= $r['id'] . e($kembali) ?>" title="Edit" aria-label="Edit rekod <?= e($ringkas) ?>"><i class="bi bi-pencil" aria-hidden="true"></i></a>
@@ -212,6 +233,16 @@ require __DIR__ . '/includes/header.php';
             ] as [$lb, $nl]): ?>
               <div class="op-butiran-item"><dt><?= e($lb) ?></dt><dd><?= ($nl === null || $nl === '') ? '<span class="text-muted">-</span>' : e($nl) ?></dd></div>
             <?php endforeach; ?>
+            <?php if ($kp || $smbg): ?>
+              <div class="op-butiran-item op-butiran-pautan"><dt>Perjanjian terdahulu</dt><dd>
+                <?php if ($kp === 'tiada_rekod'): ?><span class="st-badge st-kuning"><?= e(LABEL_TIADA_REKOD) ?></span>
+                <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu">Sambungan lama: belum dipautkan</span>
+                <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_form.php?id=<?= (int)$pr['id'] ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
+                <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd></div>
+              <div class="op-butiran-item op-butiran-pautan"><dt>Disambung oleh</dt><dd>
+                <?php if ($smbg): ?><ul class="op-pautan-senarai"><?php foreach ($smbg as $sr): ?><li><a href="penyaluran_form.php?id=<?= (int)$sr['id'] ?>"><?= e(teks_rekod_pautan($sr)) ?></a> <?= lencana_status($sr['status']) ?></li><?php endforeach; ?></ul>
+                <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd></div>
+            <?php endif; ?>
           </div></div>
         </td></tr>
       <?php endforeach; ?>

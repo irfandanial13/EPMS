@@ -217,7 +217,7 @@ function filter_where(array $f): array
     if (!empty($f['ppk']))     { $w[] = 'x.ppk_id = ?';     $p[] = (int)$f['ppk']; }
     if (!empty($f['musim']))   { $w[] = 'x.musim = ?';      $p[] = $f['musim']; }
     if (!empty($f['model']) && isset(MODELS[$f['model']])) { $w[] = 'x.model = ?'; $p[] = $f['model']; }
-    if (!empty($f['status']) && in_array($f['status'], ['AKTIF', 'TAMAT'], true)) { $w[] = 'x.status = ?'; $p[] = $f['status']; }
+    if (!empty($f['status']) && in_array($f['status'], ['AKTIF', 'SAMBUNG', 'TAMAT'], true)) { $w[] = 'x.status = ?'; $p[] = $f['status']; }
     if (!empty($f['jenis']) && in_array($f['jenis'], ['ASAL', 'SAMBUNG'], true))  { $w[] = 'x.jenis = ?';  $p[] = $f['jenis']; }
     if (!empty($f['q'])) {
         $w[] = '(x.projek LIKE ? OR x.no_blok LIKE ? OR x.fasa LIKE ?)';

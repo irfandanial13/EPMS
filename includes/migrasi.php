@@ -75,6 +75,30 @@ function pastikan_skema(PDO $pdo): array
 }
 
 /**
+ * Perjanjian Fasa 2 — selepas restore: buang pautan sambungan YATIM sahaja, iaitu pautan yang
+ * sambungan_id ATAU pendahulu_id tidak lagi wujud dalam penyaluran. Ini berlaku apabila backup
+ * lama dipulihkan (dump memadam & mencipta semula penyaluran dengan FOREIGN_KEY_CHECKS=0,
+ * tetapi tidak menyentuh penyaluran_sambungan). Pautan sah tidak disentuh.
+ * Salinan penuh sebelum restore kekal dalam backup automatik pra-pulih.
+ *
+ * @return array{bilangan:int, id:int[]} ID baris pautan yang dibuang
+ */
+function bersih_pautan_yatim(PDO $pdo): array
+{
+    if (!$pdo->query("SHOW TABLES LIKE 'penyaluran_sambungan'")->fetch()) return ['bilangan' => 0, 'id' => []];
+    $ids = $pdo->query('SELECT l.id FROM penyaluran_sambungan l
+            LEFT JOIN penyaluran s ON s.id = l.sambungan_id
+            LEFT JOIN penyaluran p ON p.id = l.pendahulu_id
+            WHERE s.id IS NULL OR p.id IS NULL ORDER BY l.id')->fetchAll(PDO::FETCH_COLUMN);
+    $ids = array_map('intval', $ids);
+    if ($ids) {
+        $st = $pdo->prepare('DELETE FROM penyaluran_sambungan WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $st->execute($ids);
+    }
+    return ['bilangan' => count($ids), 'id' => $ids];
+}
+
+/**
  * Tanda akaun yang masih menggunakan kata laluan lalai pemasangan supaya wajib tukar.
  * Hanya menyemak hash; kata laluan tidak disimpan atau dilog.
  */

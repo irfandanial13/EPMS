@@ -30,7 +30,7 @@ $q = function (string $sql) use ($pdo, $params) { $st = $pdo->prepare($sql); $st
 
 /* ---------- Data (query baca sahaja) ---------- */
 $k = $q("SELECT COUNT(*) n, SUM(x.bil_peladang) bil, SUM(x.luas_ha) luas, SUM(x.sewaan) sewa, SUM(x.modal_operasi) mo,
-                SUM(x.status='AKTIF') aktif, SUM(x.status='TAMAT') tamat, COUNT(DISTINCT x.ppk_id) ppk $from")->fetch();
+                SUM(x.status='AKTIF') aktif, SUM(x.status='SAMBUNG') sambung, SUM(x.status='TAMAT') tamat, COUNT(DISTINCT x.ppk_id) ppk $from")->fetch();
 $jumlahRm = (float)$k['sewa'] + (float)$k['mo'];
 // Pecahan Sewaan/Modal ikut klasifikasi EP (sama seperti laporan Ringkasan, Fasa 2.1)
 $pecahan = pecahan_sewa_modal(agregat_ikut_model($from, $params));
@@ -117,7 +117,7 @@ require __DIR__ . '/includes/header.php';
       ['Jumlah Penyaluran', 'RM ' . rm($jumlahRm), 'Sewaan RM ' . rm($pecahan['sewa']) . ' · Modal RM ' . rm($pecahan['mo']), 'cash-stack'],
       ['Bil Peladang', nint($k['bil']), nint($k['ppk']) . ' daripada ' . nint($bilPpk) . ' PPK terlibat', 'people'],
       ['Keluasan', ha($k['luas']) . ' ha', 'Purata ' . ($k['bil'] ? ha($k['luas'] / $k['bil']) : '0.000') . ' ha / peladang', 'map'],
-      ['Rekod Projek', nint($k['n']), nint($k['aktif']) . ' aktif · ' . nint($k['tamat']) . ' tamat', 'clipboard-data'],
+      ['Rekod Projek', nint($k['n']), nint($k['aktif']) . ' aktif · ' . nint($k['sambung']) . ' disambung · ' . nint($k['tamat']) . ' tamat', 'clipboard-data'],
   ] as [$l, $v, $s, $i]): ?>
     <div class="col-sm-6 col-xl-3">
       <a class="card kpi dash-kpi h-100" href="<?= e($urlRekod()) ?>" title="Lihat rekod berkaitan">

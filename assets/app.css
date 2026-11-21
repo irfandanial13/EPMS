@@ -519,3 +519,35 @@ a.dash-nota:hover { text-decoration: underline; }
 
 /* Dashboard: penapis PPK (senarai panjang) */
 .dash-medan-ppk .form-select { min-width: 14rem; }
+
+/* Perjanjian Fasa 3: jenis perjanjian, panel perjanjian terdahulu, paparan pautan */
+.op-jenis-pilihan { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .75rem; }
+.op-jenis-kad { display: flex; gap: .65rem; align-items: flex-start; margin: 0; padding: .85rem 1rem; border: 1px solid var(--epms-border); border-radius: var(--epms-radius); background: var(--epms-surface); cursor: pointer; }
+.op-jenis-kad:hover { border-color: var(--epms-primary-border); }
+.op-jenis-kad:has(input:checked) { border-color: var(--epms-primary); box-shadow: inset 0 0 0 1px var(--epms-primary); background: var(--epms-primary-subtle); }
+.op-jenis-kad .form-check-input { margin-top: .2rem; flex: 0 0 auto; }
+.op-jenis-kad b { display: block; font-size: .92rem; }
+.op-jenis-kad small { display: block; color: var(--epms-secondary); font-size: .8rem; }
+.op-pendahulu-hasil { max-height: 320px; overflow: auto; border: 1px solid var(--epms-border); border-radius: var(--epms-radius); }
+.op-pendahulu-hasil thead th { position: sticky; top: 0; z-index: 1; }
+.op-baris-dilumpuhkan td { color: var(--epms-secondary); background: var(--epms-bg); }
+.op-subtajuk { font-size: .85rem; font-weight: 600; margin-bottom: .4rem; }
+.op-pendahulu-dipilih li { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; padding: .5rem .5rem .5rem .75rem; margin-bottom: .4rem;
+  border: 1px solid var(--epms-primary-border); border-radius: var(--epms-radius); background: var(--epms-primary-subtle); }
+.op-dipilih-teks { flex: 1 1 0; min-width: 0; font-size: .84rem; }
+.op-dipilih-amaran { order: 3; flex-basis: 100%; font-size: .78rem; color: #7A5600; }
+.op-tiada-rekod { padding: .6rem .75rem .6rem 2.25rem; border: 1px dashed var(--epms-border); border-radius: var(--epms-radius); }
+.op-ralat-panel { padding: .5rem .75rem; border-radius: var(--epms-radius); background: #FCEBEA; color: #9B1C14; font-size: .84rem; }
+.op-pautan { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1rem; font-size: .88rem; }
+.op-pautan dt { font-weight: 500; color: var(--epms-secondary); }
+.op-pautan dd { margin: 0; }
+.op-pautan-senarai { margin: 0; padding-left: 1.1rem; }
+.op-pautan-senarai li { margin-bottom: .2rem; }
+.op-pautan-nota { display: block; margin-top: .2rem; font-size: .7rem; line-height: 1.2; white-space: nowrap; color: var(--epms-secondary); }
+.op-pautan-tiada_rekod { color: #7A5600; font-weight: 600; }
+.op-butiran-pautan { grid-column: 1 / -1; }
+.op-autoisi-nota { margin-top: .3rem; font-size: .76rem; line-height: 1.3; }
+.op-autoisi-auto, .op-autoisi-rujukan { color: var(--epms-secondary); }
+.op-autoisi-auto .bi { color: var(--epms-primary); }
+.op-autoisi-konflik { color: #7A5600; font-weight: 500; }
+.op-autoisi-beza { color: #1E4E8C; }

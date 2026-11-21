@@ -23,6 +23,12 @@ if ($id) {
     $rec = $st->fetch() ?: redirect($urlKembali);
 }
 $asal = $rec;   // nilai tersimpan (rekod lama) — untuk membenarkan data lama yang tidak diubah
+// Perjanjian Fasa 2/3: rekod dalam aliran sambungan — jenis & status kekal nilai tersimpan (pelayan berkuasa)
+$terkunci = $id && rekod_terkunci_sambungan(db(), $id);
+$pautan = $id ? pautan_rekod(db(), [$id]) : ['pendahulu' => [], 'sambungan' => []];
+// Keadaan panel pendahulu (rekod baharu): dipulihkan daripada POST jika borang dipaparkan semula
+$pendahuluPilihan = [];
+$tiadaRekodDipilih = false;
 
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -31,6 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach ($fields as $k) {
         if (array_key_exists($k, $_POST) || !$id) $rec[$k] = trim((string)($_POST[$k] ?? ''));
         else $rec[$k] = (string)($rec[$k] ?? '');
+    }
+    // Rekod terkunci: jenis & status kekal nilai tersimpan (SAMBUNG hanya ditetapkan oleh aliran sambungan)
+    if ($terkunci) { $rec['jenis'] = (string)$asal['jenis']; $rec['status'] = (string)$asal['status']; }
+    // Perjanjian Sambungan baharu sentiasa AKTIF (O-3); medan status tidak dipaparkan dalam mod ini
+    if (!$id && $rec['jenis'] === 'SAMBUNG') $rec['status'] = 'AKTIF';
+    if (!$id) {
+        $rawPendahulu = $_POST['pendahulu_id'] ?? null;
+        $pendahuluPilihan = is_array($rawPendahulu) ? rekod_ringkas_ikut_id(db(), array_filter($rawPendahulu, 'is_string')) : [];
+        $tiadaRekodDipilih = ($_POST['pendahulu_tiada_rekod'] ?? '') === '1';
     }
 
     // A4: validasi pelayan (hanya untuk rekod yang ditambah / diedit; data lama tidak diubah)
@@ -58,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($rec['model'] === '') $errors[] = 'Sila pilih Model.';
     elseif (!isset(MODELS[$rec['model']])) $errors[] = 'Model tidak sah.';
     if (!in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
-    if (!in_array($rec['status'], ['AKTIF', 'TAMAT'], true)) $errors[] = 'Status tidak sah.';
+    if (!in_array($rec['status'], $terkunci ? [(string)$asal['status']] : STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
 
     // A2: Kadar Sewa & Sewaan hanya untuk model SP/EP. Bagi model lain, nilai yang dihantar ditolak;
     // nilai lama yang tidak dihantar (medan dinyahaktif selepas tukar model) dikosongkan kepada 0.
@@ -71,18 +86,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Perjanjian Sambungan baharu: semakan input pautan awal (sama seperti backend) dan pengesahan pengguna (Q3).
+    // simpan_rekod_baharu() kekal sebagai pengesahan muktamad.
+    if (!$id && $rec['jenis'] === 'SAMBUNG' && !$errors) {
+        $errors = sahkan_input_sambungan('SAMBUNG', $_POST['pendahulu_id'] ?? null, $_POST['pendahulu_tiada_rekod'] ?? null)['errors'];
+        if (!$errors && ($_POST['sahkan_sambungan'] ?? '') !== '1') $errors[] = 'Sila sahkan Perjanjian Sambungan sebelum menyimpan.';
+    }
+
     if (!$errors) {
         $vals = array_map(fn($k) => $rec[$k] === '' ? null : $rec[$k], $fields);
         $vals[] = musim_susun($rec['musim']);
         if ($id) {
             $sql = 'UPDATE penyaluran SET ' . implode(', ', array_map(fn($k) => "$k = ?", $fields)) . ', musim_susun = ? WHERE id = ?';
             $vals[] = $id;
-        } else {
-            $sql = 'INSERT INTO penyaluran (' . implode(', ', $fields) . ', musim_susun) VALUES (' . rtrim(str_repeat('?, ', count($fields) + 1), ', ') . ')';
+            db()->prepare($sql)->execute($vals);
+            flash('Rekod telah dikemas kini.');
+            redirect($urlKembali);
         }
-        db()->prepare($sql)->execute($vals);
-        flash($id ? 'Rekod telah dikemas kini.' : 'Rekod baharu telah ditambah.');
-        redirect($urlKembali);
+        // Rekod baharu: Perjanjian Asal atau Sambungan (pautan + status pendahulu, atomik)
+        $hasil = simpan_rekod_baharu(db(), array_combine([...$fields, 'musim_susun'], $vals),
+            $_POST['pendahulu_id'] ?? null, $_POST['pendahulu_tiada_rekod'] ?? null, (int)(current_user()['id'] ?? 0) ?: null);
+        if ($hasil['ok']) {
+            flash('Rekod baharu telah ditambah.');
+            foreach ($hasil['amaran'] as $a) flash($a, 'warning');
+            redirect($urlKembali);
+        }
+        $errors = $hasil['errors'];
     }
 }
 
@@ -117,6 +146,72 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
 <form method="post" class="card op-borang" id="borangRekod" aria-label="<?= e($pageTitle) ?>" data-validasi>
   <?= csrf_field() ?>
   <input type="hidden" name="kembali" value="<?= e($kembali) ?>">
+<?php if (!$id): $modSambung = $rec['jenis'] === 'SAMBUNG'; ?>
+  <input type="hidden" name="sahkan_sambungan" id="sahkanSambungan" value="0">
+
+  <section class="op-seksyen" aria-labelledby="tajukJenis">
+    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span><div><h2 id="tajukJenis">Jenis Perjanjian</h2><p>Perjanjian baharu, atau sambungan kepada perjanjian terdahulu.</p></div></div>
+    <div><div class="op-jenis-pilihan<?= $tak('jenis') ?>" role="radiogroup" aria-labelledby="tajukJenis">
+      <label class="op-jenis-kad"><input type="radio" class="form-check-input" name="jenis" value="ASAL"<?= $modSambung ? '' : ' checked' ?>>
+        <span><b>Perjanjian Asal</b><small>Perjanjian pertama. Tiada perjanjian terdahulu.</small></span></label>
+      <label class="op-jenis-kad"><input type="radio" class="form-check-input" name="jenis" value="SAMBUNG"<?= $modSambung ? ' checked' : '' ?>>
+        <span><b>Perjanjian Sambungan</b><small>Menyambung perjanjian terdahulu, yang akan ditanda SAMBUNG.</small></span></label>
+    </div><?= $fb('jenis') ?></div>
+  </section>
+
+  <section class="op-seksyen" id="panelPendahulu" data-mod="SAMBUNG" aria-labelledby="tajukPendahulu"<?= $modSambung ? '' : ' hidden' ?>>
+    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-link-45deg" aria-hidden="true"></i></span><div><h2 id="tajukPendahulu">Perjanjian Terdahulu</h2><p>Pilih perjanjian terdahulu yang terkini (satu atau lebih). Perjanjian TAMAT tidak boleh dipilih.</p></div></div>
+    <div>
+      <div class="row g-2 align-items-end" role="search" aria-label="Cari perjanjian terdahulu">
+        <div class="col-md-6 col-xl-4"><label class="form-label" for="cpPpk">PPK</label>
+          <select id="cpPpk" class="form-select form-select-sm"><option value="">Semua PPK</option>
+            <?php foreach ($ppkIkutWilayah as $wid => $senarai): ?>
+              <optgroup label="<?= e($wilayahNama[$wid] ?? '') ?>"><?php foreach ($senarai as $p) echo $opt($p['id'], $rec['ppk_id'], "{$p['kod']} {$p['nama']}"); ?></optgroup>
+            <?php endforeach; ?>
+          </select></div>
+        <div class="col-md-6 col-xl-3"><label class="form-label" for="cpProjek">Projek</label><input id="cpProjek" class="form-control form-control-sm" maxlength="100" autocomplete="off"></div>
+        <div class="col-md-4 col-xl-2"><label class="form-label" for="cpBlok">No Blok</label><input id="cpBlok" class="form-control form-control-sm" maxlength="100" autocomplete="off"></div>
+        <div class="col-md-4 col-xl-2"><label class="form-label" for="cpModel">Model</label>
+          <select id="cpModel" class="form-select form-select-sm"><option value="">Semua</option><?php foreach (MODELS as $k => $t) echo $opt($k, '', $k); ?></select></div>
+        <div class="col-md-4 col-xl-1"><button type="button" id="cpButang" class="btn btn-sipadi btn-sm w-100"><i class="bi bi-search" aria-hidden="true"></i> Cari</button></div>
+      </div>
+      <div id="cpStatus" class="small text-muted mt-2" aria-live="polite">Skop lalai: PPK pada borang. Pilih "Semua PPK" untuk mencari di PPK lain.</div>
+      <div class="op-pendahulu-hasil mt-2" id="cpHasilBalut" hidden>
+        <table class="table table-sm table-data mb-0">
+          <thead><tr><th class="text-start">PPK</th><th class="text-start">Projek</th><th class="text-start">No Blok</th><th>Model</th><th>Musim</th><th>Musim Tamat</th>
+            <th class="num">Peladang</th><th class="num">Luas (Ha)</th><th>Status</th><th><span class="visually-hidden">Pilih</span></th></tr></thead>
+          <tbody id="cpHasil"></tbody>
+        </table>
+      </div>
+      <h3 class="op-subtajuk mt-3">Dipilih (<span id="bilDipilih">0</span>)</h3>
+      <ul id="senaraiDipilih" class="op-pendahulu-dipilih list-unstyled mb-0" aria-live="polite"></ul>
+      <p id="kosongDipilih" class="small text-muted mb-0">Tiada perjanjian terdahulu dipilih.</p>
+      <div class="form-check op-tiada-rekod mt-3">
+        <input class="form-check-input" type="checkbox" name="pendahulu_tiada_rekod" value="1" id="tiadaRekod"<?= $tiadaRekodDipilih ? ' checked' : '' ?>>
+        <label class="form-check-label" for="tiadaRekod"><b><?= e(LABEL_TIADA_REKOD) ?></b><span class="d-block small text-muted">Perjanjian terdahulu tiada dalam EPMS. Tidak boleh digabung dengan pilihan perjanjian terdahulu.</span></label>
+      </div>
+      <div id="ralatPendahulu" class="op-ralat-panel mt-2" role="alert" hidden></div>
+    </div>
+  </section>
+<?php elseif ($terkunci || $rec['jenis'] === 'SAMBUNG'):
+    $pdhl = $pautan['pendahulu'][$id] ?? []; $smbg = $pautan['sambungan'][$id] ?? [];
+    $kp = keadaan_pautan($asal, count($pdhl)); ?>
+
+  <section class="op-seksyen" aria-labelledby="tajukPautan">
+    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-link-45deg" aria-hidden="true"></i></span><div><h2 id="tajukPautan">Pautan Perjanjian</h2><p>Hubungan dengan perjanjian terdahulu dan sambungan.</p></div></div>
+    <div><dl class="op-pautan mb-0">
+      <dt>Perjanjian terdahulu</dt>
+      <dd><?php if ($kp === 'tiada_rekod'): ?><span class="st-badge st-kuning"><?= e(LABEL_TIADA_REKOD) ?></span>
+        <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu">Sambungan lama: belum dipautkan</span><span class="d-block small text-muted mt-1">Rekod sejarah (import Excel) tanpa pautan. Ini berbeza daripada "<?= e(LABEL_TIADA_REKOD) ?>".</span>
+        <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_form.php?id=<?= (int)$pr['id'] ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
+        <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd>
+      <dt>Disambung oleh</dt>
+      <dd><?php if ($smbg): ?><ul class="op-pautan-senarai"><?php foreach ($smbg as $sr): ?><li><a href="penyaluran_form.php?id=<?= (int)$sr['id'] ?>"><?= e(teks_rekod_pautan($sr)) ?></a> <?= lencana_status($sr['status']) ?></li><?php endforeach; ?></ul>
+        <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd>
+    </dl>
+    <?php if ($terkunci): ?><p class="small text-muted mb-0 op-pautan-nota-kunci"><i class="bi bi-lock" aria-hidden="true"></i> Jenis dan status rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini.</p><?php endif; ?></div>
+  </section>
+<?php endif; ?>
 
   <section class="op-seksyen">
     <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-building" aria-hidden="true"></i></span><div><h2>PPK &amp; Projek</h2><p>Lokasi dan maklumat projek.</p></div></div>
@@ -130,10 +225,18 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
           <?php endforeach; ?>
         </select><?= $fb('ppk_id') ?>
       </div>
+      <?php if ($id && $terkunci): ?>
+      <div class="col-md-6 col-xl-3">
+        <span class="form-label d-block">Jenis</span>
+        <div class="form-control-plaintext"><?= $asal['jenis'] === 'SAMBUNG' ? '<span class="st-badge st-biru">Sambung Perjanjian</span>' : '<span class="st-badge st-kelabu">Asal</span>' ?>
+          <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikunci</span></div>
+      </div>
+      <?php elseif ($id): ?>
       <div class="col-md-6 col-xl-3">
         <label class="form-label" for="jenis">Jenis</label>
         <select name="jenis" id="jenis" class="form-select<?= $tak('jenis') ?>"<?= $aria('jenis') ?>><?= $opt('ASAL', $rec['jenis'], 'Asal') . $opt('SAMBUNG', $rec['jenis'], 'Sambung Perjanjian') ?></select><?= $fb('jenis') ?>
       </div>
+      <?php endif; ?>
       <div class="col-md-4 col-xl-4">
         <label class="form-label" for="kump">Kump</label>
         <input name="kump" id="kump" class="form-control" maxlength="20" placeholder="BARU / A / B ..." value="<?= e($rec['kump']) ?>">
@@ -243,10 +346,22 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
   <section class="op-seksyen">
     <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-flag" aria-hidden="true"></i></span><div><h2>Status &amp; Catatan</h2><p>Status projek dan nota tindakan.</p></div></div>
     <div class="row g-3">
+      <?php if ($terkunci): ?>
       <div class="col-md-4 col-xl-3">
-        <label class="form-label" for="status">Status</label>
-        <select name="status" id="status" class="form-select<?= $tak('status') ?>"<?= $aria('status') ?>><?= $opt('AKTIF', $rec['status']) . $opt('TAMAT', $rec['status']) ?></select><?= $fb('status') ?>
+        <span class="form-label d-block">Status</span>
+        <div class="form-control-plaintext"><?= lencana_status($asal['status']) ?> <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikunci</span></div>
       </div>
+      <?php else: $sambungBaharu = !$id && $rec['jenis'] === 'SAMBUNG'; ?>
+      <div class="col-md-4 col-xl-3"<?= $id ? '' : ' data-mod="ASAL"' ?><?= $sambungBaharu ? ' hidden' : '' ?>>
+        <label class="form-label" for="status">Status</label>
+        <select name="status" id="status" class="form-select<?= $tak('status') ?>"<?= $aria('status') ?><?= $sambungBaharu ? ' disabled' : '' ?>><?= $opt('AKTIF', $rec['status']) . $opt('TAMAT', $rec['status']) ?></select><?= $fb('status') ?>
+      </div>
+      <?php if (!$id): ?>
+      <div class="col-md-4 col-xl-3" data-mod="SAMBUNG"<?= $sambungBaharu ? '' : ' hidden' ?>>
+        <span class="form-label d-block">Status</span>
+        <div class="form-control-plaintext"><?= lencana_status('AKTIF') ?> <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Automatik</span></div>
+      </div>
+      <?php endif; endif; ?>
       <div class="col-md-8 col-xl-9">
         <label class="form-label" for="tindakan">Tindakan &amp; Status</label>
         <input name="tindakan" id="tindakan" class="form-control" maxlength="255" value="<?= e($rec['tindakan']) ?>">
@@ -266,6 +381,26 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
     </div>
   </div>
 </form>
+<?php if (!$id): ?>
+<!-- Perjanjian Fasa 3: pengesahan sebelum Perjanjian Sambungan disimpan (Q3) -->
+<div class="modal fade" id="modalSambungan" tabindex="-1" aria-labelledby="modalSambunganTajuk" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h2 class="modal-title h6" id="modalSambunganTajuk"><i class="bi bi-link-45deg" aria-hidden="true"></i> Sahkan Perjanjian Sambungan</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body">
+      <p class="mb-2">Perjanjian baharu akan direkodkan sebagai <span class="st-badge st-hijau">AKTIF</span>.</p>
+      <div id="msPendahulu"><p class="mb-1">Perjanjian terdahulu yang dipilih akan ditukar kepada status <span class="st-badge st-kuning">SAMBUNG</span> dan pautan sambungan akan disimpan:</p>
+        <ul id="msSenarai" class="small mb-2"></ul></div>
+      <div id="msTiada" hidden><p class="mb-2">Tiada perjanjian terdahulu dipautkan. Rekod akan ditanda <b><?= e(LABEL_TIADA_REKOD) ?></b>.</p></div>
+      <div id="msAmaran" class="alert alert-warning small py-2 mb-2" hidden></div>
+      <p class="small text-muted mb-0">Status dan pautan ini tidak boleh diundur melalui borang.</p>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" id="msBatal">Batal</button>
+      <button type="button" class="btn btn-sipadi btn-sm" id="msSahkan"><i class="bi bi-check2-circle" aria-hidden="true"></i> Sahkan &amp; Simpan</button></div>
+  </div></div>
+</div>
+<script type="application/json" id="dataPendahulu"><?= json_encode(['dipilih' => $pendahuluPilihan, 'dihantar' => $_SERVER['REQUEST_METHOD'] === 'POST'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+<?php endif; ?>
 <?php
 $extraScripts = <<<'JS'
 <script>
@@ -290,6 +425,207 @@ $('kadarMo').addEventListener('change', e => {
   if (e.target.value) $('mo').value = ((+$('luas').value || 0) * +e.target.value).toFixed(2);
   e.target.value = '';
 });
+
+// Perjanjian Fasa 3: jenis perjanjian, carian & pilihan pendahulu, pengesahan (rekod baharu sahaja).
+// Paparan sahaja — pelayan (simpan_rekod_baharu) kekal sebagai pengesahan muktamad.
+// Didaftar SEBELUM pengendali "elak hantar berganda" supaya Batal dalam dialog tidak mengunci butang Simpan.
+(function () {
+  const borang = $('borangRekod'), panel = $('panelPendahulu');
+  if (!panel) return;
+  const ppkBorang = $('ppk_id'), cpPpk = $('cpPpk'), cpProjek = $('cpProjek'), cpBlok = $('cpBlok'), cpModel = $('cpModel'), cpButang = $('cpButang');
+  const hasil = $('cpHasil'), hasilBalut = $('cpHasilBalut'), cpStatus = $('cpStatus');
+  const senarai = $('senaraiDipilih'), kosong = $('kosongDipilih'), bil = $('bilDipilih'), tiada = $('tiadaRekod'), ralat = $('ralatPendahulu');
+  const dipilih = new Map(), cache = new Map();
+  let ppkCariDiubah = false, disahkan = false, dalamAutoisi = false;
+  const LENCANA = { AKTIF: ['Aktif', 'st-hijau'], SAMBUNG: ['Disambung', 'st-kuning'], TAMAT: ['Tamat', 'st-kelabu'] };
+  const el = (tag, cls, teks) => { const n = document.createElement(tag); if (cls) n.className = cls; if (teks != null) n.textContent = teks; return n; };
+  const lencana = s => { const [l, c] = LENCANA[s] || [s, 'st-merah']; return el('span', 'st-badge ' + c, l); };
+  const ha = v => Number(v).toLocaleString('en-MY', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  const jenis = () => (borang.querySelector('input[name="jenis"]:checked') || {}).value || 'ASAL';
+  const amaran = r => {
+    const a = [];
+    if (r.status === 'SAMBUNG') a.push('Perjanjian ini telah pun disambung sebelum ini.');
+    if (ppkBorang.value && String(r.ppk_id) !== ppkBorang.value) a.push('Perjanjian ini daripada PPK lain (' + r.ppk + ').');
+    return a;
+  };
+  const ringkas = r => '#' + r.id + ' · ' + (r.projek || '-') + ' · ' + r.ppk + ' · ' + (r.no_blok || '-') + ' · ' + r.model + ' · musim ' + r.musim
+    + (r.musim_tamat ? ' hingga ' + r.musim_tamat : '') + ' · ' + r.bil_peladang + ' peladang · ' + ha(r.luas_ha) + ' ha';
+
+  function butang(b, r, kunci) {
+    if (!r.boleh_pilih) { b.disabled = true; b.textContent = 'Tidak boleh'; b.title = r.sebab; return; }
+    if (dipilih.has(r.id)) { b.disabled = true; b.textContent = 'Dipilih'; b.title = 'Sudah dipilih'; return; }
+    b.disabled = kunci; b.textContent = 'Pilih'; b.title = kunci ? 'Tidak boleh dipilih bersama ' + tiada.labels[0].querySelector('b').textContent : 'Pilih sebagai perjanjian terdahulu';
+  }
+  // Autoisi (reka bentuk diluluskan): PPK, Projek, No Blok, Model, Kump, Kadar diisi daripada perjanjian terdahulu yang dipilih
+  // HANYA jika nilainya sama bagi semua pendahulu. Nilai bercanggah → medan dikosongkan + nota. Peladang & Luas TIDAK disalin
+  // (dipaparkan sebagai rujukan). Medan yang diisi sendiri oleh pengguna tidak ditimpa: medan diurus autoisi hanya jika
+  // kosong atau masih mengandungi nilai autoisi terakhir. Paparan sahaja — tiada kesan pada logik pautan backend.
+  const rm2 = v => 'RM ' + Number(v).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const MEDAN_AUTO = [
+    ['ppk_id', r => String(r.ppk_id), r => r.ppk], ['projek', r => r.projek], ['no_blok', r => r.no_blok], ['model', r => r.model],
+    ['kump', r => r.kump], ['kadar', r => Number(r.kadar_sewa) ? String(Number(r.kadar_sewa)) : '', r => Number(r.kadar_sewa) ? rm2(r.kadar_sewa) : ''],
+  ];
+  const IKON_NOTA = { auto: 'bi-magic', konflik: 'bi-exclamation-triangle', beza: 'bi-info-circle', rujukan: 'bi-clock-history' };
+  function nota(medan, jenisNota, teks) {
+    const col = medan.closest('[class*="col-"]');
+    let n = col.querySelector('.op-autoisi-nota');
+    if (!jenisNota) { if (n) n.remove(); return; }
+    if (!n) { n = el('div'); n.id = medan.id + '-autoisi'; col.append(n); }
+    n.className = 'op-autoisi-nota op-autoisi-' + jenisNota;
+    n.dataset.jenis = jenisNota;
+    n.replaceChildren(el('i', 'bi ' + IKON_NOTA[jenisNota]), document.createTextNode(' ' + teks));
+  }
+  const tetap = (f, v) => { if (f.value === v) return; f.value = v; f.dispatchEvent(new Event('change', { bubbles: true })); };
+  // Tulis nilai autoisi; nilai sebelum autoisi pertama disimpan supaya boleh dipulihkan (cth Model lalai borang)
+  const tulisAuto = (f, v) => { if (f.dataset.sebelumAuto === undefined) f.dataset.sebelumAuto = f.value; tetap(f, v); f.dataset.autoNilai = v; };
+  function autoisi(s) {
+    const rekod = [...dipilih.values()];
+    dalamAutoisi = true;
+    try {
+      MEDAN_AUTO.forEach(([id, nilai, label = nilai]) => {
+        const f = $(id);
+        // Diurus autoisi jika: belum diubah pengguna, kosong, atau masih nilai autoisi terakhir
+        const urus = !f.dataset.pengguna || f.value === '' || f.value === f.dataset.autoNilai;
+        if (!s) { nota(f, null); return; }
+        if (!rekod.length) {                                         // semua pendahulu dibuang: pulihkan nilai sebelum autoisi
+          if (urus && f.dataset.autoNilai !== undefined) tetap(f, f.dataset.sebelumAuto ?? '');
+          delete f.dataset.autoNilai; delete f.dataset.sebelumAuto; nota(f, null); return;
+        }
+        if (f.disabled) { nota(f, null); return; }                   // cth Kadar bagi model bukan SP/EP
+        const nilaiUnik = [...new Set(rekod.map(nilai))];
+        if (nilaiUnik.length > 1) {
+          if (urus) tulisAuto(f, '');
+          const senaraiNilai = [...new Set(rekod.map(r => label(r) || '(kosong)'))].join(' / ');
+          nota(f, 'konflik', 'Perjanjian terdahulu yang dipilih mempunyai nilai berbeza: ' + senaraiNilai + '. Sila isi sendiri.');
+          return;
+        }
+        const v = nilaiUnik[0];
+        if (urus) { tulisAuto(f, v); nota(f, v === '' ? null : 'auto', 'Diisi daripada perjanjian terdahulu.'); }
+        else if (f.value !== v) nota(f, 'beza', 'Nilai perjanjian terdahulu: ' + (label(rekod[0]) || '(kosong)') + '.');
+        else nota(f, null);
+      });
+      [['bil', r => r.bil_peladang, v => String(v), ' peladang'], ['luas', r => r.luas_ha, ha, ' ha']].forEach(([id, ambil, fmt, unit]) => {
+        const f = $(id);
+        if (!s || !rekod.length) { nota(f, null); return; }
+        const jumlah = rekod.reduce((a, r) => a + Number(ambil(r)), 0);
+        nota(f, 'rujukan', 'Perjanjian terdahulu: ' + (rekod.length === 1 ? fmt(ambil(rekod[0]))
+          : rekod.map(r => '#' + r.id + ' ' + fmt(ambil(r))).join(' + ') + ' = ' + fmt(jumlah)) + unit + ' (rujukan sahaja, tidak disalin).');
+      });
+    } finally { dalamAutoisi = false; }
+    if (!ppkCariDiubah) cpPpk.value = ppkBorang.value;
+  }
+
+  function kemas() {
+    const s = jenis() === 'SAMBUNG';
+    autoisi(s);
+    senarai.replaceChildren();
+    dipilih.forEach(r => {
+      const li = el('li'), teks = el('div', 'op-dipilih-teks', ringkas(r) + ' ');
+      teks.append(lencana(r.status));
+      li.append(teks);
+      amaran(r).forEach(a => { const d = el('div', 'op-dipilih-amaran'); d.append(el('i', 'bi bi-exclamation-triangle'), document.createTextNode(' ' + a)); li.append(d); });
+      const inp = el('input'); inp.type = 'hidden'; inp.name = 'pendahulu_id[]'; inp.value = r.id; inp.disabled = !s;
+      const b = el('button', 'btn op-btn-ikon op-btn-padam'); b.type = 'button'; b.title = 'Buang pilihan'; b.disabled = !s;
+      b.setAttribute('aria-label', 'Buang perjanjian terdahulu #' + r.id); b.append(el('i', 'bi bi-x-lg'));
+      b.addEventListener('click', () => { dipilih.delete(r.id); kemas(); });
+      li.append(inp, b);
+      senarai.append(li);
+    });
+    bil.textContent = dipilih.size;
+    kosong.hidden = dipilih.size > 0;
+    if (dipilih.size) tiada.checked = false;                       // eksklusif bersama (O-5)
+    tiada.disabled = !s || dipilih.size > 0;
+    const kunci = !s || tiada.checked;
+    [cpPpk, cpProjek, cpBlok, cpModel, cpButang].forEach(i => i.disabled = kunci);
+    hasil.querySelectorAll('button[data-id]').forEach(b => butang(b, cache.get(+b.dataset.id), kunci));
+    if (dipilih.size || tiada.checked) ralat.hidden = true;
+  }
+  function mod() {
+    const s = jenis() === 'SAMBUNG';
+    document.querySelectorAll('[data-mod]').forEach(blok => {
+      const aktif = blok.dataset.mod === (s ? 'SAMBUNG' : 'ASAL');
+      blok.hidden = !aktif;
+      blok.querySelectorAll('input, select, textarea, button').forEach(i => i.disabled = !aktif);
+    });
+    kemas();
+  }
+  function paparHasil(rekod, lebih) {
+    hasil.replaceChildren();
+    rekod.forEach(r => {
+      cache.set(r.id, r);
+      const tr = el('tr', r.boleh_pilih ? '' : 'op-baris-dilumpuhkan');
+      [[r.ppk, 'text-start'], [r.projek || '-', 'text-start'], [r.no_blok || '-', 'text-start'], [r.model], [r.musim], [r.musim_tamat || '-'],
+       [String(r.bil_peladang), 'num'], [ha(r.luas_ha), 'num']].forEach(([t, c]) => tr.append(el('td', c || '', t)));
+      const tdS = el('td'); tdS.append(lencana(r.status)); tr.append(tdS);
+      const tdB = el('td'), b = el('button', 'btn btn-outline-primary btn-sm py-0'); b.type = 'button'; b.dataset.id = r.id;
+      b.addEventListener('click', () => {
+        if (dipilih.has(r.id) || !r.boleh_pilih || tiada.checked) return;   // elak pendua / TAMAT
+        dipilih.set(r.id, r); kemas();
+      });
+      tdB.append(b); tr.append(tdB); hasil.append(tr);
+    });
+    hasilBalut.hidden = !rekod.length;
+    const lain = cpPpk.value !== ppkBorang.value ? (cpPpk.value ? ' Carian di PPK lain daripada borang.' : ' Carian semua PPK.') : '';
+    cpStatus.textContent = (rekod.length ? rekod.length + ' rekod ditemui' + (lebih ? ' (50 pertama; perincikan carian)' : '') + '.' : 'Tiada rekod sepadan.') + lain;
+    kemas();
+  }
+  async function cari() {
+    const qs = new URLSearchParams({ ppk: cpPpk.value, projek: cpProjek.value.trim(), no_blok: cpBlok.value.trim(), model: cpModel.value });
+    cpStatus.textContent = 'Mencari…';
+    cpButang.disabled = true;
+    try {
+      const res = await fetch('penyaluran_cari.php?' + qs, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.ralat || 'ralat tidak diketahui');
+      paparHasil(j.rekod, j.lebih);
+    } catch (err) {
+      cpStatus.textContent = 'Carian gagal (' + err.message + '). Muat semula halaman jika sesi telah tamat.';
+      hasilBalut.hidden = true;
+    } finally { kemas(); }
+  }
+
+  const dataAwal = JSON.parse($('dataPendahulu').textContent || '{}');
+  (dataAwal.dipilih || []).forEach(r => dipilih.set(r.id, r));
+  // Medan yang diubah pengguna tidak ditimpa autoisi. Borang dipaparkan semula selepas hantar: nilai dihantar = nilai pengguna.
+  MEDAN_AUTO.forEach(([id]) => {
+    const f = $(id);
+    if (dataAwal.dihantar && f.value !== '') f.dataset.pengguna = '1';
+    ['input', 'change'].forEach(ev => f.addEventListener(ev, () => { if (!dalamAutoisi) f.dataset.pengguna = '1'; }));
+  });
+  cpPpk.value = ppkBorang.value;
+  borang.querySelectorAll('input[name="jenis"]').forEach(r => r.addEventListener('change', mod));
+  ppkBorang.addEventListener('change', () => { if (dalamAutoisi) return; if (!ppkCariDiubah) cpPpk.value = ppkBorang.value; kemas(); });
+  // Medan autoisi yang ditukar sendiri oleh pengguna: kemas kini nota (perbezaan dengan perjanjian terdahulu)
+  MEDAN_AUTO.forEach(([id]) => $(id).addEventListener('change', () => { if (!dalamAutoisi && id !== 'ppk_id') kemas(); }));
+  cpPpk.addEventListener('change', () => { ppkCariDiubah = true; });
+  cpButang.addEventListener('click', cari);
+  [cpProjek, cpBlok].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cari(); } }));
+  tiada.addEventListener('change', kemas);
+  mod();
+
+  // Pengesahan sebelum simpan (Perjanjian Sambungan sahaja)
+  const modalEl = $('modalSambungan'), modal = bootstrap.Modal.getOrCreateInstance(modalEl), sah = $('sahkanSambungan');
+  borang.addEventListener('submit', e => {
+    if (jenis() !== 'SAMBUNG' || disahkan) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!dipilih.size && !tiada.checked) {
+      ralat.textContent = 'Pilih sekurang-kurangnya satu perjanjian terdahulu, atau tandakan ' + tiada.labels[0].querySelector('b').textContent + '.';
+      ralat.hidden = false; panel.scrollIntoView({ block: 'center' }); (cpProjek.disabled ? tiada : cpProjek).focus();
+      return;
+    }
+    $('msPendahulu').hidden = !dipilih.size; $('msTiada').hidden = !tiada.checked;
+    $('msSenarai').replaceChildren(...[...dipilih.values()].map(r => { const li = el('li', null, ringkas(r) + ' → '); li.append(el('span', 'st-badge st-kuning', 'SAMBUNG')); return li; }));
+    const semua = [...dipilih.values()].flatMap(r => amaran(r).map(a => '#' + r.id + ': ' + a));
+    $('msAmaran').hidden = !semua.length; $('msAmaran').textContent = semua.join(' ');
+    modal.show();
+  });
+  modalEl.addEventListener('shown.bs.modal', () => $('msSahkan').focus());
+  modalEl.addEventListener('hidden.bs.modal', () => { if (!disahkan) sah.value = '0'; });
+  $('msSahkan').addEventListener('click', () => {
+    disahkan = true; sah.value = '1'; modal.hide();
+    if (borang.requestSubmit) borang.requestSubmit(); else borang.submit();
+  });
+})();
 
 // UI-04 (paparan sahaja): ringkasan jumlah, elak hantar berganda, fokus pada ralat
 (function () {
