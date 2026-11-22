@@ -3,8 +3,10 @@
  * Backup & restore pangkalan data EPMS menggunakan mysqldump / mysql (XAMPP).
  *
  * Setiap backup = 2 fail dalam BACKUP_DIR (dilindungi storage/.htaccess):
- *   sipadi_YYYYmmdd_HHiiss_<jenis>.sql   — dump SQL
- *   sipadi_YYYYmmdd_HHiiss_<jenis>.json  — metadata: tarikh, jenis, oleh, saiz, sha256, bil. rekod setiap jadual
+ *   <awalan>YYYYmmdd_HHiiss_<jenis>[_N].sql   — dump SQL (tanpa nama pangkalan data: boleh dipulihkan ke mana-mana DB_NAME)
+ *   <awalan>YYYYmmdd_HHiiss_<jenis>[_N].json  — metadata: tarikh, jenis, oleh, saiz, sha256, bil. rekod setiap jadual
+ * Awalan backup BAHARU = BACKUP_AWALAN (lalai 'epms_'). Awalan lama 'sipadi_' kekal DITERIMA untuk senarai,
+ * muat turun, restore dan retention — backup sedia ada tidak dinamakan semula. Awalan tidak bergantung pada DB_NAME.
  *
  * Metadata disimpan sebagai fail (bukan dalam DB) supaya ia tidak hilang/berubah apabila DB dipulihkan.
  * Kelayakan DB dihantar melalui fail --defaults-extra-file sementara, bukan pada baris arahan.
@@ -18,6 +20,40 @@ const BACKUP_JENIS = [
     'pra-fasa1' => 'Sebelum Fasa 1',
 ];
 
+/** Awalan nama fail backup BAHARU. Boleh ditetapkan dalam config.php; lalai 'epms_'. */
+if (!defined('BACKUP_AWALAN')) define('BACKUP_AWALAN', 'epms_');
+/** Awalan lama yang masih diterima (backup sebelum penukaran awalan). Tidak digunakan untuk backup baharu. */
+const BACKUP_AWALAN_LAMA = ['sipadi_'];
+
+/** Semua awalan yang diterima: huruf kecil/nombor diikuti '_' sahaja (konfigurasi salah dihentikan, bukan diabaikan). */
+function backup_awalan_diterima(): array
+{
+    $semua = array_values(array_unique([BACKUP_AWALAN, ...BACKUP_AWALAN_LAMA]));
+    foreach ($semua as $a) {
+        if (!is_string($a) || !preg_match('/^[a-z][a-z0-9]*_\z/', $a)) throw new LogicException('Awalan backup tidak sah: ' . var_export($a, true));
+    }
+    return $semua;
+}
+
+/** Corak nama fail backup: (awalan)(Ymd_His)_(jenis)(_N)?.sql — D: '$' tidak menerima baris baharu di hujung. */
+function backup_pola(): string
+{
+    return '/^(' . implode('|', array_map(fn($a) => preg_quote($a, '/'), backup_awalan_diterima())) . ')(\d{8}_\d{6})_([a-z0-9-]+?)(?:_(\d+))?\.sql$/D';
+}
+
+/** Pecahan nama fail backup: ['awalan', 'masa' (Ymd_His), 'jenis', 'urutan'], atau null jika bukan nama backup yang sah. */
+function backup_pecah_nama(string $fail): ?array
+{
+    if (!preg_match(backup_pola(), $fail, $m)) return null;
+    return ['awalan' => $m[1], 'masa' => $m[2], 'jenis' => $m[3], 'urutan' => (int)($m[4] ?? 1)];
+}
+
+/** Nama asas (tanpa sambungan) bagi backup BAHARU: BACKUP_AWALAN + Ymd_His + jenis. */
+function nama_asas_backup_baharu(string $jenis, ?int $masa = null): string
+{
+    return BACKUP_AWALAN . date('Ymd_His', $masa ?? time()) . '_' . $jenis;
+}
+
 function backup_dir(): string
 {
     if (!is_dir(BACKUP_DIR) && !@mkdir(BACKUP_DIR, 0775, true)) {
@@ -26,10 +62,10 @@ function backup_dir(): string
     return BACKUP_DIR;
 }
 
-/** Nama fail backup yang sah sahaja (elak path traversal). */
+/** Nama fail backup yang sah sahaja (elak path traversal). Menerima awalan baharu dan lama. */
 function backup_nama_sah(string $fail): bool
 {
-    return (bool)preg_match('/^sipadi_\d{8}_\d{6}_[a-z0-9-]+(_\d+)?\.sql$/', $fail);
+    return backup_pecah_nama($fail) !== null;
 }
 
 function backup_path(string $fail): string
@@ -120,9 +156,10 @@ function buat_backup(string $jenis, string $oleh, string $catatan = ''): array
 {
     if (!isset(BACKUP_JENIS[$jenis])) throw new InvalidArgumentException('Jenis backup tidak sah.');
     $dir = backup_dir();
-    $asas = 'sipadi_' . date('Ymd_His') . '_' . $jenis;
+    $asas = nama_asas_backup_baharu($jenis);
     $fail = "$asas.sql";
     for ($i = 2; is_file("$dir/$fail"); $i++) $fail = "{$asas}_$i.sql";
+    if (!backup_nama_sah($fail)) throw new LogicException("Nama backup baharu tidak sah: $fail");
     $path = "$dir/$fail";
 
     $sebelum = kira_jadual(db());
@@ -160,19 +197,24 @@ function buat_backup(string $jenis, string $oleh, string $catatan = ''): array
     return $meta;
 }
 
-/** Senarai backup, terbaru dahulu. */
+/**
+ * Senarai backup (semua awalan yang diterima), terbaru dahulu.
+ * Disusun ikut cap masa DALAM nama fail (bukan nama penuh): 'sipadi_' > 'epms_' secara abjad, jadi susunan nama
+ * akan meletakkan backup lama di atas backup baharu. status_backup() bergantung pada elemen pertama = terbaru.
+ */
 function senarai_backup(): array
 {
     $list = [];
-    foreach (glob(backup_dir() . '/sipadi_*.sql') ?: [] as $p) {
+    foreach (glob(backup_dir() . '/*.sql') ?: [] as $p) {
         $fail = basename($p);
-        if (!backup_nama_sah($fail)) continue;
+        $nama = backup_pecah_nama($fail);
+        if ($nama === null) continue;
         $meta = backup_meta($fail) ?? [];
-        $list[] = $meta + ['fail' => $fail, 'dicipta' => date('Y-m-d H:i:s', filemtime($p)), 'jenis' => '?', 'oleh' => '?',
-                           'saiz' => filesize($p), 'jadual' => []];
+        $list[] = ['_susun' => [$nama['masa'], $nama['urutan'], $fail]] + $meta
+            + ['fail' => $fail, 'dicipta' => date('Y-m-d H:i:s', filemtime($p)), 'jenis' => '?', 'oleh' => '?', 'saiz' => filesize($p), 'jadual' => []];
     }
-    usort($list, fn($a, $b) => strcmp($b['fail'], $a['fail']));
-    return $list;
+    usort($list, fn($a, $b) => $b['_susun'] <=> $a['_susun']);
+    return array_map(function ($b) { unset($b['_susun']); return $b; }, $list);
 }
 
 /* ---------- Status backup terakhir (Fasa 3.1 A5) ---------- */
@@ -254,8 +296,10 @@ function rancang_pangkas_backup(?int $kini = null): array
         if (!is_file($p) || str_ends_with($p, '.json')) continue;
         $fail = basename($p);
         $kekal = function (string $sebab) use (&$pelan, $fail) { $pelan[$fail] = ['fail' => $fail, 'tindakan' => 'KEKAL', 'sebab' => $sebab]; };
-        if (!backup_nama_sah($fail)) { $kekal('bukan fail backup sistem / tidak dikenali'); continue; }
-        if (!preg_match('/^sipadi_(\d{8}_\d{6})_([a-z0-9-]+?)(?:_\d+)?\.sql$/', $fail, $m)) { $kekal('format nama tidak dikenali'); continue; }
+        // Awalan baharu & lama dinilai dengan peraturan yang sama; backup berjadual sah terbaru dipilih ikut masa, bukan awalan
+        $nama = backup_pecah_nama($fail);
+        if ($nama === null) { $kekal('bukan fail backup sistem / tidak dikenali'); continue; }
+        $m = [1 => $nama['masa'], 2 => $nama['jenis']];
         if ($m[2] !== 'jadual') { $kekal('backup ' . (BACKUP_JENIS[$m[2]] ?? $m[2]) . ' — tidak tertakluk kepada retention'); continue; }
         $meta = backup_meta($fail);
         if (!$meta) { $kekal('metadata tiada — tarikh tidak dapat disahkan'); continue; }

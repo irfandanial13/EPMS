@@ -3,7 +3,9 @@
 Sistem web (PHP + MySQL) berdasarkan fail Excel
 `1. PENYALURAN PPSB (IKUT PPK) SEHINGGA FASA 2 TAHUN 2026.xlsx`.
 
-> Dahulu dikenali sebagai **SIPADI**. Nama pangkalan data (`sipadi`), folder URL (`/SIPADI/`), cookie sesi dan nama fail backup (`sipadi_*.sql`) dikekalkan supaya integrasi dan backup sedia ada tidak terjejas. Logo rasmi: `assets/images/epms-logo.png`.
+> Dahulu dikenali sebagai **SIPADI**. Folder aplikasi ialah `htdocs/EPMS` (URL `/EPMS/`). Pengecam dalaman lama (cookie sesi `SIPADISESS`, kelas CSS `.btn-sipadi`) dikekalkan. Logo rasmi: `assets/images/epms-logo.png`.
+>
+> **Pangkalan data:** pemasangan produksi semasa masih menggunakan `sipadi` (dalam `config.php` sebenar). Nama sasaran ialah `epms` (templat `config.example.php`); migrasi `sipadi` → `epms` ialah tugas berasingan yang memerlukan kelulusan — jangan ubah `DB_NAME` dalam `config.php` sebenar sebelum itu. Lihat [Konvensyen nama pangkalan data](#konvensyen-nama-pangkalan-data).
 
 ## Pemasangan baharu (XAMPP)
 
@@ -65,11 +67,12 @@ XAMPP secara lalai menggunakan `root` tanpa kata laluan. Untuk pelayan yang bole
 
 1. Cipta akaun MySQL khas melalui phpMyAdmin → SQL, atau `C:\xampp\mysql\bin\mysql.exe -u root`:
    ```sql
-   CREATE USER 'sipadi_app'@'localhost' IDENTIFIED BY '<kata-laluan-kuat>';
+   CREATE USER 'epms_app'@'localhost' IDENTIFIED BY '<kata-laluan-kuat>';
    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES, LOCK TABLES, TRIGGER
-         ON sipadi.* TO 'sipadi_app'@'localhost';
+         ON `<DB_NAME>`.* TO 'epms_app'@'localhost';
    FLUSH PRIVILEGES;
    ```
+   Gantikan `<DB_NAME>` dengan nama pangkalan data dalam `config.php` (kini `sipadi`; `epms` selepas migrasi).
    Keistimewaan `CREATE/DROP/ALTER/LOCK TABLES` diperlukan untuk migrasi, backup dan restore.
 2. Kemas kini `DB_USER` dan `DB_PASS` dalam `config.php`.
 3. Tetapkan kata laluan untuk `root` MySQL, dan kemas kini `C:\xampp\phpMyAdmin\config.inc.php` jika phpMyAdmin digunakan.
@@ -94,7 +97,7 @@ XAMPP secara lalai menggunakan `root` tanpa kata laluan. Untuk pelayan yang bole
 | Perkara | Tetapan |
 |---|---|
 | Tugas | `EPMS_Daily_Backup` → `scripts\backup_epms.bat` (working directory: folder projek). Dahulu `SIPADI_Daily_Backup` / `backup_sipadi.bat` (diganti 19/11/2026) |
-| Nama fail backup | Kekal `sipadi_*.sql` + `.json` (ikut nama DB; dikenali oleh senarai, restore dan retention) |
+| Nama fail backup | Baharu: `epms_<YYYYmmdd_HHiiss>_<jenis>.sql` + `.json` (`BACKUP_AWALAN`, tidak bergantung pada `DB_NAME`). Lama: `sipadi_*.sql` kekal diterima oleh senarai, muat turun, restore dan retention; tidak dinamakan semula |
 | Jadual | Setiap hari 20:00 (waktu Windows UTC+08:00, Asia/Kuala_Lumpur) |
 | Akaun | Akaun Windows semasa, hanya apabila pengguna log masuk (tiada kata laluan disimpan) |
 | Jadual terlepas | Dijalankan secepat mungkin apabila komputer tersedia |
@@ -114,13 +117,25 @@ Retention (dijalankan selepas setiap backup berjadual yang berjaya):
 - Hanya backup **berjadual** yang lebih tua daripada 30 hari dipadam (fail `.sql` + `.json` pasangannya).
 - Backup manual, pra-pulih dan pra-fasa tidak pernah dipadam.
 - Fail tidak dipadam jika tarikhnya tidak dapat disahkan (nama fail dan metadata mesti sepadan), jika metadata tiada, atau jika fail gagal semakan integriti.
-- Backup berjadual sah yang terbaru sentiasa disimpan.
+- Backup berjadual sah yang terbaru (ikut tarikh, tanpa mengira awalan `epms_`/`sipadi_`) sentiasa disimpan.
 - Setiap pemadaman dan sebabnya dicatat dalam `storage/logs/backup.log`.
 - Simulasi tanpa pemadaman: `C:\xampp\php\php.exe scripts\backup_epms.php --simulasi`
 
 Nota:
 - MySQL mesti sedang berjalan pada waktu jadual.
 - Salin backup penting secara berkala ke lokasi lain (cakera luaran atau pelayan lain).
+
+## Konvensyen nama pangkalan data
+
+| Kegunaan | Nama |
+|---|---|
+| Produksi | `epms` (sasaran). **Pemasangan semasa: `sipadi`** sehingga migrasi diluluskan |
+| Ujian | `epms_ujian_<suite>` — cth `epms_ujian_f42`, `epms_ujian_http`, `epms_ujian_migrasi` |
+| Pembangunan (pilihan) | `epms_dev` |
+| Ujian sementara | `epms_ujian_tmp_<pengenal>` |
+| Akaun MySQL ujian (disyorkan, belum dicipta) | `epms_ujian`, keistimewaan HANYA pada `` `epms\_ujian\_%` ``.* — tiada akses ke produksi |
+
+Alat ujian (`tests/`) mewajibkan `EPMS_UJIAN_DB` (tiada nilai lalai), menolak nama selain `^epms_ujian_[a-z0-9_]+$`, menolak `epms`, `sipadi` dan `DB_NAME` produksi, dan mengesahkan `SELECT DATABASE()` sebelum dan selepas setiap operasi yang mengubah pangkalan data. Jangan gunakan corak keistimewaan luas seperti `epms%` (merangkumi produksi). Butiran: [tests/README.md](tests/README.md).
 
 ## Definisi skop (sama seperti Excel)
 
@@ -144,8 +159,9 @@ penyaluran_form.php     tambah/edit rekod
 laporan.php             laporan + eksport
 ppk.php, pengguna.php, backup.php
 includes/               bootstrap (teras + keselamatan), header/footer, laporan_lib, xlsx,
-                        migrasi (skema), backup_lib (backup/restore)
+                        migrasi (skema), backup_lib (backup/restore), sql_selamat (semakan fail SQL import)
 scripts/                backup_epms.php, backup_epms.bat, daftar_backup_jadual.ps1, migrasi_cli.php   (CLI sahaja)
+tests/                  alat & ujian keselamatan (CLI sahaja, disekat daripada pelayar) — lihat tests/README.md
 database/               schema.sql, data.sql, import_excel.py
 storage/                backups/, logs/, install.lock   (tidak boleh dicapai melalui pelayar)
 assets/app.css

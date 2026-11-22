@@ -3,7 +3,8 @@
  * Backup berjadual EPMS (baris arahan sahaja). Dipanggil oleh scripts\backup_epms.bat (tugas EPMS_Daily_Backup).
  *   C:\xampp\php\php.exe scripts\backup_epms.php              backup + retention
  *   C:\xampp\php\php.exe scripts\backup_epms.php --simulasi   dry-run retention sahaja (tiada backup, tiada pemadaman)
- * Nota: nama fail dump kekal sipadi_*.sql (ikut nama DB 'sipadi'; dikenali oleh senarai, restore dan retention).
+ * Nota: backup baharu dinamakan BACKUP_AWALAN + Ymd_His + jenis (lalai epms_*.sql), tidak bergantung pada DB_NAME.
+ *       Backup lama sipadi_*.sql kekal dikenali oleh senarai, restore dan retention (lihat includes/backup_lib.php).
  * Kod keluar: 0 = berjaya, 1 = gagal, 2 = dilangkau (backup lain sedang berjalan).
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit('CLI sahaja'); }
