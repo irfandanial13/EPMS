@@ -103,10 +103,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$postBetul) {
     if (!(int)$rec['ppk_id']) $errors[] = 'Sila pilih PPK.';
     elseif (!in_array((int)$rec['ppk_id'], array_map('intval', array_column(senarai_ppk(), 'id')), true)) $errors[] = 'PPK tidak sah.';
 
-    // Musim: 1/YYYY atau 2/YYYY. Rekod lama dengan format lain dibenarkan selagi musimnya tidak diubah.
-    $musimLamaTidakDiubah = $id && $rec['musim'] === (string)$asal['musim'] && musim_susun($rec['musim']) > 0;
+    // Musim: 1/YYYY atau 2/YYYY. Rekod lama dengan format lain dibenarkan selagi tiada medan julat diubah.
+    $julatDiubah = !$id || $rec['musim'] !== (string)$asal['musim'] || $rec['musim_tamat'] !== (string)($asal['musim_tamat'] ?? '');
+    $musimLamaTidakDiubah = $id && !$julatDiubah && musim_susun($rec['musim']) > 0;
     if ($rec['musim'] === '') $errors[] = 'Musim wajib diisi.';
-    elseif (!musim_format_sah($rec['musim']) && !$musimLamaTidakDiubah) $errors[] = 'Musim mesti dalam format 1/YYYY atau 2/YYYY (contoh 1/2026). Musim 0, 3 dan ke atas tidak diterima.';
+    elseif (!$julatDiubah && !musim_format_sah($rec['musim']) && !$musimLamaTidakDiubah) $errors[] = 'Musim mesti dalam format 1/YYYY atau 2/YYYY (contoh 1/2026). Musim 0, 3 dan ke atas tidak diterima.';
+
+    // Musim Pelaksanaan & Bil Musim DIJANA daripada Musim Mula & Musim Tamat (nilai dihantar diabaikan — medan baca sahaja).
+    // Jika mana-mana medan julat diubah, KEDUA-DUA nilai disahkan; format lama yang tidak boleh dihuraikan ditolak
+    // supaya nilai Musim Pelaksanaan / Bil Musim yang lama tidak disimpan semula secara senyap.
+    $julat = semak_julat_musim($rec['musim'], $rec['musim_tamat'], $julatDiubah, $asal);
+    $errors = array_merge($errors, $julat['errors']);
+    $rec['musim_pelaksanaan'] = (string)($julat['pelaksanaan'] ?? '');
+    $rec['bil_musim'] = (string)($julat['bil'] ?? '');
 
     if ($rec['model'] === '') $errors[] = 'Sila pilih Model.';
     elseif (!isset(MODELS[$rec['model']])) $errors[] = 'Model tidak sah.';
@@ -164,7 +173,7 @@ $opt = fn($val, $cur, $label = null) => '<option value="' . e($val) . '"' . ((st
 
 // UI-04: padankan mesej ralat pelayan (tidak diubah) kepada medan untuk paparan sebaris — paparan sahaja
 $petaRalat = ['Kadar Sewa' => 'kadar_sewa', 'Sewaan' => 'sewaan', 'Modal Operasi' => 'modal_operasi', 'Bil Peladang' => 'bil_peladang',
-              'Luas' => 'luas_ha', 'PPK' => 'ppk_id', 'Musim' => 'musim', 'Model' => 'model', 'Jenis' => 'jenis', 'Status' => 'status'];
+              'Luas' => 'luas_ha', 'PPK' => 'ppk_id', 'Musim Tamat' => 'musim_tamat', 'Musim' => 'musim', 'Model' => 'model', 'Jenis' => 'jenis', 'Status' => 'status'];
 $ralatMedan = [];
 foreach ($errors as $er) foreach ($petaRalat as $kunci => $medan) if (str_contains($er, $kunci)) { $ralatMedan[$medan][] = $er; break; }
 $tak = fn(string $k) => isset($ralatMedan[$k]) ? ' is-invalid' : '';
@@ -301,16 +310,22 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
   </section>
 
   <section class="op-seksyen">
-    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-calendar3" aria-hidden="true"></i></span><div><h2>Musim &amp; Model</h2><p>Musim mula dan model penyaluran.</p></div></div>
+    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-calendar3" aria-hidden="true"></i></span><div><h2>Musim &amp; Model</h2><p>Musim mula, musim tamat dan model penyaluran.</p></div></div>
     <div class="row g-3">
-      <div class="col-md-4">
-        <label class="form-label" for="musim">Musim mula <?= $wajib ?></label>
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="musim">Musim Mula <?= $wajib ?></label>
         <input name="musim" id="musim" class="form-control<?= $tak('musim') ?>" required placeholder="1/2026" value="<?= e($rec['musim']) ?>" list="musimList"<?= $aria('musim') ?>
           <?php if (!$id || musim_format_sah((string)$asal['musim'])): ?>pattern="[12]/[0-9]{4}" title="Format 1/YYYY atau 2/YYYY, contoh 1/2026"<?php endif; ?>>
         <datalist id="musimList"><?php foreach (senarai_musim() as $m) echo '<option value="' . e($m) . '">'; ?></datalist>
         <?= $fb('musim') ?: '<div class="form-text">Format 1/YYYY atau 2/YYYY.</div>' ?>
       </div>
-      <div class="col-md-8">
+      <div class="col-md-6 col-xl-3">
+        <label class="form-label" for="musim_tamat">Musim Tamat <?= $wajib ?></label>
+        <input name="musim_tamat" id="musim_tamat" class="form-control<?= $tak('musim_tamat') ?>" placeholder="2/2028" value="<?= e($rec['musim_tamat']) ?>"<?= $aria('musim_tamat') ?>
+          <?php if (!$id || musim_format_sah((string)$asal['musim_tamat'])): ?>required pattern="[12]/[0-9]{4}" title="Format 1/YYYY atau 2/YYYY, contoh 2/2028"<?php endif; ?>>
+        <?= $fb('musim_tamat') ?: '<div class="form-text">Musim terakhir pelaksanaan (termasuk).</div>' ?>
+      </div>
+      <div class="col-md-12 col-xl-6">
         <label class="form-label" for="model">Model <?= $wajib ?></label>
         <select name="model" id="model" class="form-select<?= $tak('model') ?>" required<?= $aria('model') ?>>
           <?php foreach (MODELS as $k => $t) echo $opt($k, $rec['model'], "$k - $t"); ?>
@@ -371,22 +386,34 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
 
   <section class="op-seksyen">
     <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-diagram-3" aria-hidden="true"></i></span><div><h2>Pelaksanaan</h2><p>Tempoh dan fasa penyaluran.</p></div></div>
-    <div class="row g-3">
+    <?php
+    // Rekod sedia ada: nilai tersimpan dikekalkan sehingga Musim Mula/Tamat diubah — maklumkan jika berbeza daripada kiraan
+    $notaMusim = null;
+    if ($id) {
+        $janaAsal = jana_musim_pelaksanaan((string)$asal['musim'], (string)($asal['musim_tamat'] ?? ''));
+        if (!$janaAsal['ok']) $notaMusim = 'Rekod lama: Musim Mula/Tamat tersimpan bukan dalam format 1/YYYY atau 2/YYYY, jadi nilai di bawah dikekalkan seperti tersimpan. Kemas kini Musim Tamat untuk menjana semula.';
+        elseif ($janaAsal['pelaksanaan'] !== (string)$asal['musim_pelaksanaan'] || (string)$janaAsal['bil'] !== (string)$asal['bil_musim'])
+            $notaMusim = 'Nilai tersimpan dikekalkan (data sejarah). Kiraan semasa ialah ' . $janaAsal['pelaksanaan'] . ' · ' . $janaAsal['bil'] . ' musim; ia akan digunakan jika Musim Mula atau Musim Tamat diubah.';
+    } ?>
+    <div class="row g-3" id="medanMusimJana" data-asal-mula="<?= e($id ? (string)$asal['musim'] : '') ?>" data-asal-tamat="<?= e($id ? (string)($asal['musim_tamat'] ?? '') : '') ?>"
+         data-asal-pelaksanaan="<?= e($id ? (string)$asal['musim_pelaksanaan'] : '') ?>" data-asal-bil="<?= e($id ? (string)$asal['bil_musim'] : '') ?>">
       <div class="col-md-6 col-xl-4">
         <label class="form-label" for="musim_pelaksanaan">Musim Pelaksanaan</label>
-        <input name="musim_pelaksanaan" id="musim_pelaksanaan" class="form-control" placeholder="1/2026-2/2028" value="<?= e($rec['musim_pelaksanaan']) ?>">
+        <input id="musim_pelaksanaan" class="form-control form-control-auto" readonly aria-describedby="notaJanaMusim" placeholder="Dijana daripada Musim Mula & Tamat" value="<?= e($rec['musim_pelaksanaan']) ?>">
       </div>
       <div class="col-md-6 col-xl-2">
         <label class="form-label" for="bilMusim">Bil Musim</label>
-        <input name="bil_musim" id="bilMusim" class="form-control" maxlength="10" value="<?= e($rec['bil_musim']) ?>">
+        <input id="bilMusim" class="form-control form-control-auto" readonly aria-describedby="notaJanaMusim" value="<?= e($rec['bil_musim']) ?>">
       </div>
       <div class="col-md-6 col-xl-3">
         <label class="form-label" for="fasa">Fasa Penyaluran</label>
         <input name="fasa" id="fasa" class="form-control" placeholder="F2/26" value="<?= e($rec['fasa']) ?>">
       </div>
-      <div class="col-md-6 col-xl-3">
-        <label class="form-label" for="musim_tamat">Musim Tamat</label>
-        <input name="musim_tamat" id="musim_tamat" class="form-control" placeholder="2/2028" value="<?= e($rec['musim_tamat']) ?>">
+      <div class="col-12">
+        <div class="form-text" id="notaJanaMusim"><span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dijana automatik</span>
+          Musim Pelaksanaan = Musim Mula–Musim Tamat; Bil Musim dikira termasuk musim mula dan musim tamat (2 musim setahun).
+          <span id="ralatJulatMusim" class="text-danger d-block" role="status"></span>
+          <?php if ($notaMusim): ?><span class="d-block text-muted" id="notaMusimLama"><?= e($notaMusim) ?></span><?php endif; ?></div>
       </div>
     </div>
   </section>
@@ -535,13 +562,49 @@ function toggleSP() {
 }
 $('model').addEventListener('change', toggleSP); toggleSP();
 $('kiraSewa').addEventListener('click', () => {
-  const v = (+$('luas').value || 0) * (+$('kadar').value || 0) * (parseInt($('bilMusim').value) || 1);
+  const bil = parseInt($('bilMusim').value, 10);
+  if (!Number.isInteger(bil) || bil < 1) {
+    const m = $('ralatJulatMusim');
+    if (m) m.textContent = 'Sila pastikan Musim Mula dan Musim Tamat sah sebelum menekan Kira.';
+    $('bilMusim').focus();
+    return;
+  }
+  const v = (+$('luas').value || 0) * (+$('kadar').value || 0) * bil;
   $('sewaan').value = v.toFixed(2);
 });
 $('kadarMo').addEventListener('change', e => {
   if (e.target.value) $('mo').value = ((+$('luas').value || 0) * +e.target.value).toFixed(2);
   e.target.value = '';
 });
+
+// Musim Pelaksanaan & Bil Musim dijana daripada Musim Mula & Musim Tamat (paparan; pelayan mengira semula semasa simpan).
+// Peraturan sama seperti jana_musim_pelaksanaan(): inklusif, 2 musim setahun, tahun 2000–2100.
+(function () {
+  const mula = $('musim'), tamat = $('musim_tamat'), mp = $('musim_pelaksanaan'), bil = $('bilMusim'), ralat = $('ralatJulatMusim'), kotak = $('medanMusimJana');
+  if (!mula || !tamat || !mp || !bil) return;
+  const asal = kotak.dataset;
+  const semak = (v, label) => {
+    if (v === '') return label + ' wajib diisi.';
+    const m = /^(\d+)\/(\d+)$/.exec(v);
+    if (!m) return label + ' mesti dalam format 1/YYYY atau 2/YYYY (contoh 1/2026).';
+    if (m[1] !== '1' && m[1] !== '2') return label + ': nombor musim mesti 1 atau 2.';
+    if (m[2].length !== 4 || +m[2] < 2000 || +m[2] > 2100) return label + ': tahun mesti antara 2000 dan 2100.';
+    return null;
+  };
+  const indeks = v => { const m = /^([12])\/(\d{4})$/.exec(v); return m ? +m[2] * 2 + +m[1] - 1 : null; };
+  function kira() {
+    const a = mula.value.trim(), b = tamat.value.trim();
+    // Rekod sedia ada: jika kedua-dua musim sama seperti tersimpan, papar nilai tersimpan (tidak dikira semula)
+    if (asal.asalMula !== '' && a === asal.asalMula && b === asal.asalTamat) { mp.value = asal.asalPelaksanaan; bil.value = asal.asalBil; ralat.textContent = ''; return; }
+    const r = [semak(a, 'Musim Mula'), semak(b, 'Musim Tamat')].filter(Boolean);
+    if (!r.length && indeks(b) < indeks(a)) r.push('Musim Tamat tidak boleh lebih awal daripada Musim Mula.');
+    ralat.textContent = (a !== '' || b !== '') ? r.join(' ') : '';
+    mp.value = r.length ? '' : a + '-' + b;
+    bil.value = r.length ? '' : String(indeks(b) - indeks(a) + 1);
+  }
+  ['input', 'change'].forEach(ev => { mula.addEventListener(ev, kira); tamat.addEventListener(ev, kira); });
+  if (asal.asalMula === '') kira();
+})();
 
 // Perjanjian Fasa 3: jenis perjanjian, carian & pilihan pendahulu, pengesahan (rekod baharu sahaja).
 // Paparan sahaja — pelayan (simpan_rekod_baharu) kekal sebagai pengesahan muktamad.

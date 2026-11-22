@@ -6,7 +6,7 @@
  */
 $pageTitle = $pageTitle ?? '';
 $active = basename($_SERVER['SCRIPT_NAME'], '.php');
-if ($active === 'penyaluran_form') $active = 'penyaluran';
+if (in_array($active, ['penyaluran_form', 'penyaluran_lihat'], true)) $active = 'penyaluran';
 
 // Menu ikut modul sebenar sahaja (fail => [label, ikon]), disusun ikut aliran kerja harian (UI-05):
 // pantau → urus penyaluran → rujuk direktori → laporan → pentadbiran sistem

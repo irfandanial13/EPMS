@@ -7,8 +7,8 @@
 
 const LAPORAN = [
     'ringkasan' => 'Ringkasan Penyaluran Ikut PPK & Model',
-    'modal'     => 'Modal Pusingan PPSB',
-    'keluasan'  => 'Keluasan PPSB',
+    'modal'     => 'Modal Pusingan Estet Padi',
+    'keluasan'  => 'Keluasan Estet Padi',
     'musim'     => 'Penyaluran Ikut Musim',
 ];
 
@@ -145,7 +145,7 @@ function laporan_ringkasan(string $skop, array $opt): array
         ['t' => 'Jumlah Penyaluran (RM)', 'fmt' => 'rm', 'v' => fn($a) => col_sum('sewa')($a) + col_sum('mo')($a)],
     ]];
     return bina_laporan($groups, $data, [
-        'title' => 'RINGKASAN PENYALURAN PPSB IKUT PPK & MODEL',
+        'title' => 'RINGKASAN PENYALURAN ESTET PADI IKUT PPK & MODEL',
         'subtitle' => mb_strtoupper(SKOP[$skop]),
         'sheet' => 'Ringkasan',
     ], $opt['wilayah'] ?? null);
@@ -165,7 +165,7 @@ function laporan_modal(string $skop, array $opt): array
         ['t' => 'JUMLAH', 'cols' => [['t' => 'Modal Pusingan (RM)', 'fmt' => 'rm', 'v' => fn($a) => col_sum('sewa')($a) + col_sum('mo')($a)]]],
     ];
     return bina_laporan($groups, $data, [
-        'title' => 'MODAL PUSINGAN PPSB',
+        'title' => 'MODAL PUSINGAN ESTET PADI',
         'subtitle' => mb_strtoupper(SKOP[$skop]),
         'sheet' => 'Modal Pusingan',
     ], $opt['wilayah'] ?? null);
@@ -184,7 +184,7 @@ function laporan_keluasan(string $skop, array $opt): array
         ]],
     ];
     return bina_laporan($groups, $data, [
-        'title' => 'KELUASAN PPSB',
+        'title' => 'KELUASAN ESTET PADI',
         'subtitle' => mb_strtoupper(SKOP[$skop]),
         'sheet' => 'Keluasan',
     ], $opt['wilayah'] ?? null);
@@ -207,7 +207,7 @@ function laporan_musim(string $skop, array $opt): array
     $sub = mb_strtoupper(SKOP[$skop]) . ' · ' . mb_strtoupper(METRIK[$metrik])
         . (!empty($opt['model']) ? ' · MODEL ' . $opt['model'] : '');
     return bina_laporan($groups, $data, [
-        'title' => 'PENYALURAN PPSB IKUT MUSIM',
+        'title' => 'PENYALURAN ESTET PADI IKUT MUSIM',
         'subtitle' => $sub,
         'sheet' => 'Ikut Musim',
     ], $opt['wilayah'] ?? null);

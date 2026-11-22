@@ -219,10 +219,20 @@ function filter_where(array $f): array
     if (!empty($f['model']) && isset(MODELS[$f['model']])) { $w[] = 'x.model = ?'; $p[] = $f['model']; }
     if (!empty($f['status']) && in_array($f['status'], ['AKTIF', 'SAMBUNG', 'TAMAT'], true)) { $w[] = 'x.status = ?'; $p[] = $f['status']; }
     if (!empty($f['jenis']) && in_array($f['jenis'], ['ASAL', 'SAMBUNG'], true))  { $w[] = 'x.jenis = ?';  $p[] = $f['jenis']; }
-    if (!empty($f['q'])) {
-        $w[] = '(x.projek LIKE ? OR x.no_blok LIKE ? OR x.fasa LIKE ?)';
-        $q = '%' . $f['q'] . '%';
-        array_push($p, $q, $q, $q);
+    if (!empty($f['tahun']) && preg_match('/^\d{4}$/D', (string)$f['tahun'])) {
+        $tahun = (int)$f['tahun'];
+        if ($tahun >= MUSIM_TAHUN_MIN && $tahun <= MUSIM_TAHUN_MAKS) { $w[] = 'x.musim_susun BETWEEN ? AND ?'; array_push($p, $tahun * 10 + 1, $tahun * 10 + 2); }
+    }
+    if (isset($f['q']) && trim((string)$f['q']) !== '') {
+        $teks = trim((string)$f['q']);
+        if (preg_match('/^#(\d{1,10})$/D', $teks, $m)) {
+            $w[] = 'x.id = ?'; $p[] = (int)$m[1];
+        } else {
+            $medan = ['p.kod', 'p.nama', 'w.nama', 'x.projek', 'x.no_blok', 'x.model', 'x.kump', 'x.musim', 'x.musim_pelaksanaan', 'x.musim_tamat', 'x.fasa', 'x.tindakan', 'x.catatan'];
+            $w[] = '(' . implode(' OR ', array_map(fn($k) => "$k LIKE ? ESCAPE CHAR(92)", $medan)) . ')';
+            $q = '%' . addcslashes($teks, '%_\\') . '%';
+            array_push($p, ...array_fill(0, count($medan), $q));
+        }
     }
     return [implode(' AND ', $w), $p];
 }

@@ -24,7 +24,7 @@ require __DIR__ . '/includes/header.php';
 <div class="op-kepala no-print">
   <div>
     <h1 class="page-title">Laporan</h1>
-    <p class="op-sub">Laporan penyaluran PPSB ikut PPK, model, keluasan dan musim. Eksport ke Excel atau cetak / PDF.</p>
+    <p class="op-sub">Laporan penyaluran Estet Padi ikut PPK, model, keluasan dan musim. Eksport ke Excel atau cetak / PDF.</p>
   </div>
   <div class="op-tindakan">
     <a class="btn btn-sipadi btn-sm" href="?<?= e($qs(['eksport' => 'xlsx'])) ?>"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Eksport Excel</a>

@@ -6,7 +6,7 @@
  */
 
 /** Parameter penapis senarai yang dibenarkan dibawa semula ke penyaluran.php. */
-const PENAPIS_KEKAL = ['wilayah', 'ppk', 'musim', 'model', 'status', 'jenis', 'q', 'page'];
+const PENAPIS_KEKAL = ['wilayah', 'ppk', 'musim', 'tahun', 'model', 'status', 'jenis', 'q', 'susun', 'arah', 'saiz', 'page'];
 
 /**
  * Bersihkan parameter penapis (tatasusunan atau query string) dan bina semula query string.
@@ -20,10 +20,44 @@ function qs_penapis(array|string $src): string
         $v = $src[$k] ?? '';
         if (!is_string($v) && !is_int($v)) continue;
         $v = mb_substr(trim((string)$v), 0, 100);
-        if (in_array($k, ['wilayah', 'ppk', 'page'], true) && !ctype_digit($v)) continue;   // ID / halaman: digit sahaja
+        if (in_array($k, ['wilayah', 'ppk', 'page', 'tahun', 'saiz'], true) && !ctype_digit($v)) continue;   // ID / halaman / tahun / saiz: digit sahaja
+        if ($k === 'susun' && !isset(SUSUNAN_REKOD[$v])) continue;
+        if ($k === 'arah' && !in_array($v, ['asc', 'desc'], true)) continue;
         if ($v !== '') $out[$k] = $v;
     }
     return http_build_query($out);
+}
+
+/**
+ * Indeks kronologi Musim Tamat untuk ORDER BY SQL: tahun × 2 + musim − 1 (sama seperti musim_indeks()).
+ * Nilai bukan 1/YYYY atau 2/YYYY menghasilkan NULL dan tidak memecahkan susunan.
+ */
+const MUSIM_TAMAT_SUSUN_SQL = "CASE WHEN x.musim_tamat REGEXP '^[12]/[0-9]{4}$' THEN CAST(SUBSTRING(x.musim_tamat, 3, 4) AS UNSIGNED) * 2 + CAST(SUBSTRING(x.musim_tamat, 1, 1) AS UNSIGNED) - 1 ELSE NULL END";
+
+/** Lajur susunan yang dibenarkan untuk senarai rekod (kunci URL => [label, ungkapan SQL]). Senarai putih — tiada SQL daripada URL. */
+const SUSUNAN_REKOD = [
+    'ppk'      => ['PPK', 'p.kod'],
+    'jenis'    => ['Jenis', 'x.jenis'],
+    'musim'    => ['Musim', 'x.musim_susun'],
+    'projek'   => ['Projek', 'x.projek'],
+    'model'    => ['Model', 'x.model'],
+    'peladang' => ['Bil Peladang', 'x.bil_peladang'],
+    'luas'     => ['Luas', 'x.luas_ha'],
+    'jumlah'   => ['Jumlah (RM)', '(x.sewaan + x.modal_operasi)'],
+    'tamat'    => ['Musim Tamat', MUSIM_TAMAT_SUSUN_SQL],
+    'status'   => ['Status', 'x.status'],
+];
+const SAIZ_HALAMAN = [25, 50, 100];
+
+/** Bina ORDER BY senarai rekod daripada senarai putih; susunan asal kekal sebagai pemutus seri. */
+function sql_order_rekod(string $kunci, string $arah): string
+{
+    $utama = '';
+    if (isset(SUSUNAN_REKOD[$kunci])) {
+        $arahSql = $arah === 'desc' ? 'DESC' : 'ASC';
+        $utama = SUSUNAN_REKOD[$kunci][1] . ' ' . $arahSql . ', ';
+    }
+    return 'ORDER BY ' . $utama . 'p.wilayah_id, p.susunan, x.jenis, x.musim_susun, x.id';
 }
 
 /** URL senarai rekod dengan penapis — sentiasa penyaluran.php (tiada hos/laluan luaran). */
@@ -37,6 +71,64 @@ function url_senarai(string $qs = ''): string
 function musim_format_sah(string $m): bool
 {
     return (bool)preg_match('#^[12]/\d{4}$#', $m);
+}
+
+/* ---------- Musim Pelaksanaan & Bil Musim (dijana daripada Musim Mula & Musim Tamat) ----------
+ * Peraturan (diluluskan pemilik): Bil Musim dikira INKLUSIF — musim mula dan musim tamat kedua-duanya dikira.
+ * Setiap tahun ada 2 musim (1 dan 2). Contoh: 2/2025 → 1/2027 = 4; 1/2024 → 1/2026 = 5; 1/2026 → 2/2028 = 6.
+ * Musim Pelaksanaan = "<mula>-<tamat>" (format majoriti data sedia ada, cth 1/2026-2/2028).
+ */
+const MUSIM_TAHUN_MIN = 2000;
+const MUSIM_TAHUN_MAKS = 2100;
+
+/** Indeks berterusan bagi musim N/YYYY (tahun × 2 + musim − 1), atau null jika format/tahun tidak sah. */
+function musim_indeks(string $m): ?int
+{
+    if (!preg_match('#^([12])/(\d{4})$#D', $m, $x)) return null;
+    $tahun = (int)$x[2];
+    if ($tahun < MUSIM_TAHUN_MIN || $tahun > MUSIM_TAHUN_MAKS) return null;
+    return $tahun * 2 + (int)$x[1] - 1;
+}
+
+/** Ralat format satu medan musim (null jika sah). $label: 'Musim Mula' / 'Musim Tamat'. */
+function ralat_format_musim(string $m, string $label): ?string
+{
+    if ($m === '') return "$label wajib diisi.";
+    if (!preg_match('#^(\d+)/(\d+)$#D', $m, $x)) return "$label mesti dalam format 1/YYYY atau 2/YYYY (contoh 1/2026).";
+    if (!in_array($x[1], ['1', '2'], true)) return "$label: nombor musim mesti 1 atau 2.";
+    if (strlen($x[2]) !== 4 || (int)$x[2] < MUSIM_TAHUN_MIN || (int)$x[2] > MUSIM_TAHUN_MAKS) return "$label: tahun mesti antara " . MUSIM_TAHUN_MIN . ' dan ' . MUSIM_TAHUN_MAKS . '.';
+    return null;
+}
+
+/**
+ * Jana Musim Pelaksanaan & Bil Musim daripada Musim Mula & Musim Tamat.
+ * @return array{ok:bool, errors:string[], pelaksanaan:?string, bil:?int}
+ */
+function jana_musim_pelaksanaan(string $mula, string $tamat): array
+{
+    $errors = array_values(array_filter([ralat_format_musim($mula, 'Musim Mula'), ralat_format_musim($tamat, 'Musim Tamat')]));
+    if (!$errors && musim_indeks($tamat) < musim_indeks($mula)) $errors[] = 'Musim Tamat tidak boleh lebih awal daripada Musim Mula.';
+    if ($errors) return ['ok' => false, 'errors' => $errors, 'pelaksanaan' => null, 'bil' => null];
+    return ['ok' => true, 'errors' => [], 'pelaksanaan' => "$mula-$tamat", 'bil' => musim_indeks($tamat) - musim_indeks($mula) + 1];
+}
+
+/**
+ * Validasi julat Musim Mula/Tamat semasa simpan.
+ * Jika tiada medan musim diubah, nilai lama dikekalkan (peraturan data sejarah yang diluluskan).
+ * Jika salah satu diubah, KEDUA-DUA nilai mesti boleh dihuraikan; jika tidak, simpan ditolak
+ * dan nilai lama tidak dikekalkan secara senyap.
+ * @return array{ok:bool, errors:string[], pelaksanaan:?string, bil:?string, diubah:bool}
+ */
+function semak_julat_musim(string $mula, string $tamat, bool $diubah, array $asal = []): array
+{
+    if (!$diubah) {
+        return ['ok' => true, 'errors' => [], 'pelaksanaan' => (string)($asal['musim_pelaksanaan'] ?? ''),
+                'bil' => (string)($asal['bil_musim'] ?? ''), 'diubah' => false];
+    }
+    $jana = jana_musim_pelaksanaan($mula, $tamat);
+    return ['ok' => $jana['ok'], 'errors' => $jana['errors'],
+            'pelaksanaan' => $jana['ok'] ? $jana['pelaksanaan'] : null,
+            'bil' => $jana['ok'] ? (string)$jana['bil'] : null, 'diubah' => true];
 }
 
 /* ---------- Perjanjian Fasa 2: simpan Perjanjian Asal / Sambungan ----------
@@ -509,6 +601,36 @@ function keadaan_pautan(array $r, int $bilPendahulu): ?string
     if ((int)($r['pendahulu_tiada_rekod'] ?? 0) === 1) return 'tiada_rekod';
     if ($bilPendahulu > 0) return 'dipautkan';
     return ($r['jenis'] ?? '') === 'SAMBUNG' ? 'lama' : null;
+}
+
+/**
+ * Rantaian perjanjian bagi rekod $id: semua rekod yang bersambung melalui pautan sambungan (pendahulu & sambungan,
+ * kedua-dua arah), disusun kronologi (musim mula, kemudian ID). Baca sahaja; dihadkan $had rekod.
+ * @return array{rekod: array<int,array>, pautan: list<array{0:int,1:int}>, terpotong: bool}  pautan = [pendahulu_id, sambungan_id]
+ */
+function rantaian_perjanjian(PDO $pdo, int $id, int $had = 200): array
+{
+    $dilawati = [$id => true];
+    $giliran = [$id];
+    $pautan = [];
+    $st = $pdo->prepare('SELECT pendahulu_id, sambungan_id FROM penyaluran_sambungan WHERE sambungan_id = ? OR pendahulu_id = ?');
+    while ($giliran && count($dilawati) < $had) {
+        $c = array_shift($giliran);
+        $st->execute([$c, $c]);
+        foreach ($st->fetchAll() as $l) {
+            $p = (int)$l['pendahulu_id']; $s = (int)$l['sambungan_id'];
+            $pautan["$p-$s"] = [$p, $s];
+            foreach ([$p, $s] as $n) if (!isset($dilawati[$n]) && count($dilawati) < $had) { $dilawati[$n] = true; $giliran[] = $n; }
+        }
+    }
+    $ids = array_keys($dilawati);
+    $rs = $pdo->prepare('SELECT x.id, x.jenis, x.status, x.pendahulu_tiada_rekod, x.musim, x.musim_susun, x.musim_tamat, x.musim_pelaksanaan, x.bil_musim,
+            x.projek, x.no_blok, x.model, x.luas_ha, x.bil_peladang, x.sewaan, x.modal_operasi, p.kod ppk_kod, p.nama ppk_nama
+        FROM penyaluran x JOIN ppk p ON p.id = x.ppk_id WHERE x.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY x.musim_susun, x.id');
+    $rs->execute($ids);
+    $rekod = [];
+    foreach ($rs as $r) $rekod[(int)$r['id']] = $r;
+    return ['rekod' => $rekod, 'pautan' => array_values($pautan), 'terpotong' => (bool)$giliran];
 }
 
 /** Teks ringkas satu rekod berpaut (untuk senarai pautan). */

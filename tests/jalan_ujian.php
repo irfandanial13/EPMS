@@ -6,7 +6,7 @@
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit('CLI sahaja'); }
 
-$suite = ['ujian_pengawal_db.php', 'ujian_backup.php', 'ujian_sql_selamat.php'];
+$suite = ['ujian_pengawal_db.php', 'ujian_backup.php', 'ujian_sql_selamat.php', 'ujian_penyaluran_lib.php'];
 $gagal = 0;
 foreach ($suite as $s) {
     echo "=== $s\n";

@@ -29,7 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['aksi'] ?? '') === 'padam')
 $f = array_map(fn($v) => is_string($v) ? trim($v) : '', $_GET);
 [$where, $params] = filter_where($f);
 $from = "FROM penyaluran x JOIN ppk p ON p.id = x.ppk_id JOIN wilayah w ON w.id = p.wilayah_id WHERE $where";
-$order = 'ORDER BY p.wilayah_id, p.susunan, x.jenis, x.musim_susun, x.id';
+// Susunan: lajur senarai putih SUSUNAN_REKOD (pilihan pengguna) + susunan asal sebagai pemutus seri; senarai & eksport sama
+$susun = isset(SUSUNAN_REKOD[$f['susun'] ?? '']) ? $f['susun'] : '';
+$arah = ($f['arah'] ?? '') === 'desc' ? 'desc' : 'asc';
+$order = sql_order_rekod($susun, $arah);
 
 // Eksport Excel ikut penapis semasa
 if (($f['eksport'] ?? '') === 'xlsx') {
@@ -37,7 +40,7 @@ if (($f['eksport'] ?? '') === 'xlsx') {
     $st = db()->prepare("SELECT x.*, p.kod ppk_kod, p.nama ppk_nama, w.nama wilayah $from $order");
     $st->execute($params);
     $cols = [
-        ['Wilayah', 'text', 'wilayah', 12], ['PPK', 'text', 'ppk_kod', 8], ['Nama PPK', 'text', 'ppk_nama', 18],
+        ['ID', 'int', 'id', 7], ['Wilayah', 'text', 'wilayah', 12], ['PPK', 'text', 'ppk_kod', 8], ['Nama PPK', 'text', 'ppk_nama', 18],
         ['Jenis', 'text', 'jenis', 10], ['Musim', 'text', 'musim', 9], ['No Blok', 'text', 'no_blok', 16],
         ['Projek', 'text', 'projek', 22], ['Model', 'text', 'model', 8], ['Bil Peladang', 'int', 'bil_peladang', 10],
         ['Luas (Ha)', 'ha', 'luas_ha', 11], ['Kump', 'text', 'kump', 7], ['Kadar Sewa/Ha (RM)', 'rm', 'kadar_sewa', 12],
@@ -48,8 +51,13 @@ if (($f['eksport'] ?? '') === 'xlsx') {
     ];
     $rows = [];
     foreach ($st as $r) $rows[] = ['cells' => array_map(fn($c) => $r[$c[2]], $cols), 'cls' => ''];
+    // Subtajuk merekodkan carian & penapis yang digunakan supaya fail eksport boleh difahami tanpa skrin
+    $ketPenapis = array_filter(['Carian: ' . ($f['q'] ?? '') => ($f['q'] ?? '') !== '', 'Wilayah #' . ($f['wilayah'] ?? '') => !empty($f['wilayah']),
+        'PPK #' . ($f['ppk'] ?? '') => !empty($f['ppk']), 'Musim ' . ($f['musim'] ?? '') => !empty($f['musim']), 'Tahun ' . ($f['tahun'] ?? '') => !empty($f['tahun']),
+        'Model ' . ($f['model'] ?? '') => !empty($f['model']), 'Status ' . ($f['status'] ?? '') => !empty($f['status']), 'Jenis ' . ($f['jenis'] ?? '') => !empty($f['jenis'])]);
     SimpleXlsx::download([
-        'title' => 'SENARAI REKOD PENYALURAN PPSB', 'subtitle' => 'Dijana ' . date('d/m/Y H:i'), 'sheet' => 'Penyaluran',
+        'title' => 'SENARAI REKOD PENYALURAN ESTET PADI', 'sheet' => 'Penyaluran',
+        'subtitle' => 'Dijana ' . date('d/m/Y H:i') . ' · ' . count($rows) . ' rekod' . ($ketPenapis ? ' · ' . implode(' · ', array_keys($ketPenapis)) : ' · semua rekod'),
         'head' => [array_map(fn($c) => ['t' => $c[0]], $cols)], 'fmt' => array_column($cols, 1),
         'widths' => array_column($cols, 3), 'rows' => $rows,
     ], APP_NAME . '_penyaluran_' . date('Ymd') . '.xlsx');
@@ -64,7 +72,7 @@ $aggModel = agregat_ikut_model($from, $params);
 $pecahan = pecahan_sewa_modal($aggModel);
 $epDalamModal = (float)($aggModel['EP']['sewa'] ?? 0);
 
-$perPage = 50;
+$perPage = in_array((int)($f['saiz'] ?? 0), SAIZ_HALAMAN, true) ? (int)$f['saiz'] : 50;
 $page = max(1, (int)($f['page'] ?? 1));
 $pages = max(1, (int)ceil($tot['n'] / $perPage));
 $page = min($page, $pages);
@@ -74,7 +82,7 @@ $rows = $st->fetchAll();
 // Perjanjian Fasa 3: pautan bagi rekod pada halaman ini (paling banyak $perPage rekod)
 $pautan = pautan_rekod(db(), array_column($rows, 'id'));
 
-$qsBase = http_build_query(array_diff_key($f, ['page' => 1, 'eksport' => 1]));
+$qsBase = qs_penapis(array_diff_key($f, ['page' => 1, 'eksport' => 1]));
 $qsKembali = qs_penapis(['page' => $page > 1 ? (string)$page : ''] + $f);   // penapis + halaman semasa, dibawa ke borang & padam
 $kembali = $qsKembali !== '' ? '&kembali=' . urlencode($qsKembali) : '';
 $pageTitle = 'Rekod Penyaluran';
@@ -87,6 +95,7 @@ $labelPenapis = array_filter([
     !empty($f['wilayah']) ? ($wilayahNama[(int)$f['wilayah']] ?? null) : null,
     !empty($f['ppk']) && isset($ppkInfo[(int)$f['ppk']]) ? $ppkInfo[(int)$f['ppk']]['kod'] . ' ' . $ppkInfo[(int)$f['ppk']]['nama'] : null,
     !empty($f['musim']) ? 'Musim ' . $f['musim'] : null,
+    !empty($f['tahun']) && ctype_digit($f['tahun']) ? 'Tahun ' . $f['tahun'] : null,
     !empty($f['model']) && isset(MODELS[$f['model']]) ? 'Model ' . $f['model'] : null,
     !empty($f['status']) && isset(LENCANA_STATUS[$f['status']]) ? 'Status ' . LENCANA_STATUS[$f['status']][0] : null,
     !empty($f['jenis']) && in_array($f['jenis'], ['ASAL', 'SAMBUNG'], true) ? ($f['jenis'] === 'ASAL' ? 'Asal' : 'Sambung') : null,
@@ -95,12 +104,22 @@ $labelPenapis = array_filter([
 $dari = $tot['n'] ? ($page - 1) * $perPage + 1 : 0;
 $hingga = min($page * $perPage, (int)$tot['n']);
 $urlHal = fn(int $pg) => '?' . e(ltrim($qsBase . '&page=' . $pg, '&'));
+// Pengepala lajur boleh disusun: klik = menaik; klik semula = menurun. Penapis lain dikekalkan; halaman kembali ke 1.
+$thSusun = function (string $kunci, string $label, string $kelas = '') use ($f, $susun, $arah): string {
+    $aktif = $susun === $kunci;
+    $arahBaru = $aktif && $arah === 'asc' ? 'desc' : 'asc';
+    $qs = qs_penapis(array_merge(array_diff_key($f, ['page' => 1, 'eksport' => 1]), ['susun' => $kunci, 'arah' => $arahBaru]));
+    $ikon = $aktif ? ($arah === 'asc' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-arrow-down-up op-susun-pasif';
+    return '<th class="' . e($kelas) . '"' . ($aktif ? ' aria-sort="' . ($arah === 'asc' ? 'ascending' : 'descending') . '"' : '') . '><a class="op-susun" href="?' . e($qs)
+        . '" title="Susun ikut ' . e($label) . '">' . e($label) . ' <i class="bi ' . $ikon . '" aria-hidden="true"></i></a></th>';
+};
+$senaraiTahun = db()->query('SELECT DISTINCT musim_susun DIV 10 FROM penyaluran WHERE musim_susun > 0 ORDER BY 1 DESC')->fetchAll(PDO::FETCH_COLUMN);
 require __DIR__ . '/includes/header.php';
 ?>
 <div class="op-kepala">
   <div>
     <h1 class="page-title">Rekod Penyaluran</h1>
-    <p class="op-sub">Urus rekod penyaluran PPSB: tapis, semak butiran, tambah, edit dan eksport.</p>
+    <p class="op-sub">Lihat, cari, tapis dan susun semua rekod penyaluran Estet Padi; buka butiran rekod, tambah, edit dan eksport.</p>
   </div>
   <div class="op-tindakan no-print">
     <a class="btn btn-sipadi btn-sm" href="penyaluran_form.php<?= $qsKembali !== '' ? '?kembali=' . e(urlencode($qsKembali)) : '' ?>"><i class="bi bi-plus-lg" aria-hidden="true"></i> Tambah Rekod</a>
@@ -113,8 +132,10 @@ require __DIR__ . '/includes/header.php';
   <div class="op-carian">
     <label class="visually-hidden" for="cariRekod">Carian</label>
     <i class="bi bi-search" aria-hidden="true"></i>
-    <input id="cariRekod" name="q" class="form-control" placeholder="Cari projek, no blok atau fasa…" value="<?= e($f['q'] ?? '') ?>">
+    <input id="cariRekod" name="q" class="form-control" maxlength="100" placeholder="Cari PPK, projek, no blok, model, musim, fasa, tindakan atau catatan… (#ID untuk nombor rekod)" value="<?= e($f['q'] ?? '') ?>">
   </div>
+  <?php if ($susun !== ''): ?><input type="hidden" name="susun" value="<?= e($susun) ?>"><input type="hidden" name="arah" value="<?= e($arah) ?>"><?php endif; ?>
+  <?php if ($perPage !== 50): ?><input type="hidden" name="saiz" value="<?= $perPage ?>"><?php endif; ?>
   <div class="op-grid-penapis">
     <label class="op-medan"><span>Wilayah</span>
       <select name="wilayah" class="form-select form-select-sm">
@@ -130,6 +151,11 @@ require __DIR__ . '/includes/header.php';
       <select name="musim" class="form-select form-select-sm">
         <option value="">Semua</option>
         <?php foreach (senarai_musim() as $m): ?><option <?= ($f['musim'] ?? '') === $m ? 'selected' : '' ?>><?= e($m) ?></option><?php endforeach; ?>
+      </select></label>
+    <label class="op-medan"><span>Tahun</span>
+      <select name="tahun" class="form-select form-select-sm" title="Tahun musim mula">
+        <option value="">Semua</option>
+        <?php foreach ($senaraiTahun as $t): ?><option value="<?= (int)$t ?>" <?= ($f['tahun'] ?? '') === (string)$t ? 'selected' : '' ?>><?= (int)$t ?></option><?php endforeach; ?>
       </select></label>
     <label class="op-medan"><span>Model</span>
       <select name="model" class="form-select form-select-sm">
@@ -175,13 +201,13 @@ require __DIR__ . '/includes/header.php';
     <table class="table table-sm table-hover table-data op-jadual mb-0">
       <thead><tr>
         <th class="op-lajur-butiran no-print"><span class="visually-hidden">Butiran</span></th>
-        <th class="text-start">PPK</th><th>Jenis</th><th>Musim</th><th class="text-start">No Blok</th><th class="text-start">Projek</th><th>Model</th>
-        <th class="num">Bil Peladang</th><th class="num">Luas (Ha)</th><th class="num">Sewaan (RM)</th><th class="num">Modal Operasi (RM)</th>
-        <th>Musim Pelaksanaan</th><th>Fasa</th><th>Tamat</th><th>Status</th><th class="op-lajur-tindakan no-print">Tindakan</th>
+        <?= $thSusun('ppk', 'PPK', 'text-start') . $thSusun('jenis', 'Jenis') . $thSusun('musim', 'Musim') ?><th class="text-start">No Blok</th><?= $thSusun('projek', 'Projek', 'text-start') . $thSusun('model', 'Model') ?>
+        <?= $thSusun('peladang', 'Bil Peladang', 'num') . $thSusun('luas', 'Luas (Ha)', 'num') ?><th class="num">Sewaan (RM)</th><th class="num">Modal Operasi (RM)</th><?= $thSusun('jumlah', 'Jumlah (RM)', 'num') ?>
+        <th>Musim Pelaksanaan</th><th>Fasa</th><?= $thSusun('tamat', 'Tamat') . $thSusun('status', 'Status') ?><th class="op-lajur-tindakan no-print">Tindakan</th>
       </tr></thead>
       <tbody>
       <?php if (!$rows): ?>
-        <tr><td colspan="16" class="op-kosong"><i class="bi bi-inbox" aria-hidden="true"></i><div>Tiada rekod sepadan dengan carian atau penapis.</div>
+        <tr><td colspan="17" class="op-kosong"><i class="bi bi-inbox" aria-hidden="true"></i><div>Tiada rekod sepadan dengan carian atau penapis.</div>
           <?php if ($labelPenapis): ?><a href="penyaluran.php">Set semula penapis</a><?php endif; ?></td></tr>
       <?php endif; ?>
       <?php foreach ($rows as $r): $pi = $ppkInfo[$r['ppk_id']] ?? null; $bid = 'butiran-' . (int)$r['id'];
@@ -198,18 +224,20 @@ require __DIR__ . '/includes/header.php';
             <?php if ($notaJenis): ?><span class="op-pautan-nota op-pautan-<?= e($kp) ?>" title="<?= e($notaJenis[1]) ?>"><?= e($notaJenis[0]) ?></span><?php endif; ?></td>
           <td class="text-nowrap"><?= e($r['musim']) ?></td>
           <td class="text-start"><?= e($r['no_blok']) ?></td>
-          <td class="text-start"><?= e($r['projek']) ?></td>
+          <td class="text-start op-projek"><a href="penyaluran_lihat.php?id=<?= (int)$r['id'] . e($kembali) ?>" title="Buka butiran rekod #<?= (int)$r['id'] ?>"><?= e($r['projek'] ?: '(tiada nama projek)') ?></a></td>
           <td class="text-nowrap text-start"><span class="legend-dot" style="background:<?= MODEL_COLORS[$r['model']] ?? '#999' ?>"></span><?= e($r['model']) ?></td>
           <td class="num"><?= nint($r['bil_peladang']) ?></td>
           <td class="num"><?= ha($r['luas_ha']) ?></td>
           <td class="num"><?= (float)$r['sewaan'] ? rm($r['sewaan']) : '-' ?></td>
           <td class="num"><?= rm($r['modal_operasi']) ?></td>
+          <td class="num fw-semibold"><?= rm((float)$r['sewaan'] + (float)$r['modal_operasi']) ?></td>
           <td class="text-nowrap"><?= e($r['musim_pelaksanaan']) ?></td>
           <td><?= e($r['fasa']) ?></td>
           <td class="text-nowrap"><?= e($r['musim_tamat']) ?></td>
           <td><?= lencana_status($r['status']) ?></td>
           <td class="op-lajur-tindakan no-print">
             <div class="op-tindakan-baris">
+              <a class="btn op-btn-ikon op-btn-lihat" href="penyaluran_lihat.php?id=<?= $r['id'] . e($kembali) ?>" title="Lihat butiran" aria-label="Lihat butiran rekod <?= e($ringkas) ?>"><i class="bi bi-eye" aria-hidden="true"></i></a>
               <a class="btn op-btn-ikon op-btn-edit" href="penyaluran_form.php?id=<?= $r['id'] . e($kembali) ?>" title="Edit" aria-label="Edit rekod <?= e($ringkas) ?>"><i class="bi bi-pencil" aria-hidden="true"></i></a>
               <form method="post" class="d-inline op-borang-padam" data-ringkas="<?= e($ringkas) ?>">
                 <?= csrf_field() ?><input type="hidden" name="aksi" value="padam"><input type="hidden" name="id" value="<?= $r['id'] ?>">
@@ -219,7 +247,7 @@ require __DIR__ . '/includes/header.php';
             </div>
           </td>
         </tr>
-        <tr class="op-baris-butiran no-print"><td colspan="16" class="p-0">
+        <tr class="op-baris-butiran no-print"><td colspan="17" class="p-0">
           <div class="collapse" id="<?= $bid ?>"><div class="op-butiran">
             <?php foreach ([
                 ['Wilayah', $pi ? ($wilayahNama[$pi['wilayah_id']] ?? '-') : '-'], ['PPK', $r['ppk_kod'] . ' ' . $r['ppk_nama']],
@@ -237,10 +265,10 @@ require __DIR__ . '/includes/header.php';
               <div class="op-butiran-item op-butiran-pautan"><dt>Perjanjian terdahulu</dt><dd>
                 <?php if ($kp === 'tiada_rekod'): ?><span class="st-badge st-kuning"><?= e(LABEL_TIADA_REKOD) ?></span>
                 <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu"><?= e(LABEL_SAMBUNGAN_LAMA) ?></span>
-                <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_form.php?id=<?= (int)$pr['id'] ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
+                <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_lihat.php?id=<?= (int)$pr['id'] . e($kembali) ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
                 <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd></div>
               <div class="op-butiran-item op-butiran-pautan"><dt>Disambung oleh</dt><dd>
-                <?php if ($smbg): ?><ul class="op-pautan-senarai"><?php foreach ($smbg as $sr): ?><li><a href="penyaluran_form.php?id=<?= (int)$sr['id'] ?>"><?= e(teks_rekod_pautan($sr)) ?></a> <?= lencana_status($sr['status']) ?></li><?php endforeach; ?></ul>
+                <?php if ($smbg): ?><ul class="op-pautan-senarai"><?php foreach ($smbg as $sr): ?><li><a href="penyaluran_lihat.php?id=<?= (int)$sr['id'] . e($kembali) ?>"><?= e(teks_rekod_pautan($sr)) ?></a> <?= lencana_status($sr['status']) ?></li><?php endforeach; ?></ul>
                 <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd></div>
             <?php endif; ?>
           </div></div>
@@ -250,7 +278,17 @@ require __DIR__ . '/includes/header.php';
     </table>
   </div>
   <div class="card-footer op-kaki no-print">
-    <small class="text-muted"><?= $tot['n'] ? 'Memaparkan ' . nint($dari) . '–' . nint($hingga) . ' daripada ' . nint($tot['n']) . ' rekod' : '0 rekod' ?></small>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <small class="text-muted"><?= $tot['n'] ? 'Memaparkan ' . nint($dari) . '–' . nint($hingga) . ' daripada ' . nint($tot['n']) . ' rekod' . ($pages > 1 ? " · halaman $page / $pages" : '') : '0 rekod' ?></small>
+      <form class="d-flex align-items-center gap-1" aria-label="Saiz halaman">
+        <?php foreach (array_diff_key($f, ['saiz' => 1, 'page' => 1, 'eksport' => 1]) as $k => $v): if (in_array($k, PENAPIS_KEKAL, true) && $v !== ''): ?><input type="hidden" name="<?= e($k) ?>" value="<?= e($v) ?>"><?php endif; endforeach; ?>
+        <label class="small text-muted" for="saizHalaman">Paparan</label>
+        <select id="saizHalaman" name="saiz" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+          <?php foreach (SAIZ_HALAMAN as $sz): ?><option value="<?= $sz ?>"<?= $sz === $perPage ? ' selected' : '' ?>><?= $sz ?></option><?php endforeach; ?>
+        </select><span class="small text-muted">rekod / halaman</span>
+        <noscript><button class="btn btn-outline-secondary btn-sm">OK</button></noscript>
+      </form>
+    </div>
     <?php if ($pages > 1): ?>
     <nav aria-label="Halaman rekod">
       <ul class="pagination pagination-sm mb-0">

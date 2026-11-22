@@ -42,6 +42,14 @@ $byWilayah = $q("SELECT p.wilayah_id id, SUM(x.sewaan + x.modal_operasi) rm, COU
 $byModel = $q("SELECT x.model, COUNT(*) n, SUM(x.bil_peladang) bil, SUM(x.luas_ha) luas, SUM(x.sewaan + x.modal_operasi) rm
                $from GROUP BY x.model ORDER BY rm DESC")->fetchAll();
 $topPpk = $q("SELECT p.id, p.kod, p.nama, SUM(x.sewaan + x.modal_operasi) rm $from GROUP BY p.id ORDER BY rm DESC, p.kod LIMIT 10")->fetchAll();
+// Pecahan ikut model bagi 10 PPK teratas — kedudukan KEKAL ikut jumlah RM semua model (query di atas); penapis sama
+$topModel = [];
+if ($topPpk) {
+    $topIds = array_map('intval', array_column($topPpk, 'id'));
+    $st = $pdo->prepare("SELECT p.id, x.model, SUM(x.sewaan + x.modal_operasi) rm $from AND p.id IN (" . implode(',', array_fill(0, count($topIds), '?')) . ') GROUP BY p.id, x.model');
+    $st->execute([...$params, ...$topIds]);
+    foreach ($st as $r) $topModel[$r['model']][(int)$r['id']] = (float)$r['rm'];
+}
 
 // Status data & backup (sumber sebenar: jadual penyaluran/ppk dan fail backup)
 $data = $pdo->query("SELECT COUNT(*) n, MAX(updated_at) kemaskini, MAX(musim_susun) susun FROM penyaluran")->fetch();
@@ -68,7 +76,13 @@ $chartData = [
                 'n' => array_map('intval', array_column($byMusim, 'n')),
                 'url' => array_map(fn($r) => $urlRekod(['musim' => $r['musim']]), $byMusim)],
     'top'   => ['labels' => array_map(fn($r) => $r['kod'] . ' ' . $r['nama'], $topPpk), 'rm' => array_map(fn($r) => round((float)$r['rm'], 2), $topPpk),
-                'url' => array_map(fn($r) => $urlRekod(['ppk' => $r['id']]), $topPpk)],
+                'url' => array_map(fn($r) => $urlRekod(['ppk' => $r['id']]), $topPpk),
+                // Segmen ikut model (susunan & warna MODELS / MODEL_COLORS); model tidak dikenali diletakkan di hujung
+                'model' => array_values(array_map(fn($kod) => [
+                    'kod' => $kod, 'nama' => MODELS[$kod] ?? $kod, 'warna' => MODEL_COLORS[$kod] ?? '#8A9490',
+                    'rm' => array_map(fn($r) => round($topModel[$kod][(int)$r['id']] ?? 0, 2), $topPpk),
+                    'url' => array_map(fn($r) => $urlRekod(['ppk' => $r['id'], 'model' => $kod]), $topPpk),
+                ], array_merge(array_values(array_intersect(array_keys(MODELS), array_keys($topModel))), array_values(array_diff(array_keys($topModel), array_keys(MODELS))))))],
 ];
 
 $pageTitle = 'Dashboard';
@@ -77,7 +91,7 @@ require __DIR__ . '/includes/header.php';
 <div class="dash-kepala">
   <div>
     <h1 class="page-title">Dashboard</h1>
-    <p class="dash-sub">Ringkasan operasi penyaluran PPSB · <?= $skop === 'semasa' ? 'Semasa (rekod aktif)' : 'Kumulatif (jumlah asal, termasuk yang tamat)' ?></p>
+    <p class="dash-sub">Ringkasan operasi penyaluran Estet Padi · <?= $skop === 'semasa' ? 'Semasa (rekod aktif)' : 'Kumulatif (jumlah asal, termasuk yang tamat)' ?></p>
   </div>
   <div class="dash-tarikh"><i class="bi bi-calendar3" aria-hidden="true"></i> <?= e($tarikh) ?></div>
 </div>
@@ -182,8 +196,16 @@ require __DIR__ . '/includes/header.php';
   </div>
   <div class="col-xl-5">
     <section class="card h-100"><div class="card-body">
-      <div class="dash-tajuk"><h2 class="h6 mb-0">10 PPK teratas (RM)</h2><span class="dash-nota">Klik bar untuk senarai rekod</span></div>
-      <div class="chart-box chart-box-tinggi"><canvas id="cTop" role="img" aria-label="Carta 10 PPK teratas mengikut penyaluran"></canvas></div>
+      <div class="dash-tajuk"><h2 class="h6 mb-0">10 PPK teratas (RM) ikut model</h2><span class="dash-nota">Kedudukan ikut jumlah semua model · klik segmen untuk senarai rekod</span></div>
+      <?php if ($topPpk): ?>
+      <div class="chart-box chart-box-tinggi"><canvas id="cTop" role="img" aria-label="Carta bar bertindan 10 PPK teratas mengikut jumlah penyaluran, dipecahkan ikut model" aria-describedby="jadualTop"></canvas></div>
+      <table class="visually-hidden" id="jadualTop"><caption>10 PPK teratas mengikut jumlah penyaluran</caption>
+        <thead><tr><th>PPK</th><th>Jumlah (RM)</th><?php foreach ($chartData['top']['model'] as $md): ?><th><?= e($md['kod']) ?></th><?php endforeach; ?></tr></thead>
+        <tbody><?php foreach ($topPpk as $i => $r): ?><tr><th><?= e($r['kod'] . ' ' . $r['nama']) ?></th><td><?= rm($r['rm']) ?></td><?php foreach ($chartData['top']['model'] as $md): ?><td><?= rm($md['rm'][$i]) ?></td><?php endforeach; ?></tr><?php endforeach; ?></tbody>
+      </table>
+      <?php else: ?>
+      <div class="op-kosong py-5 text-center text-muted"><i class="bi bi-bar-chart" aria-hidden="true"></i><div>Tiada penyaluran untuk penapis ini.</div></div>
+      <?php endif; ?>
     </div></section>
   </div>
 </div>
@@ -272,12 +294,32 @@ $extraScripts = <<<HTML
         scales: { x: { ...tanpaGrid, ticks: { ...tanpaGrid.ticks, maxRotation: 0, autoSkipPadding: 10 } },
                   y: { ...paksi, beginAtZero: true, ticks: { ...paksi.ticks, callback: shortRM, maxTicksLimit: 6 } } } } });
 
-    if (document.getElementById('cTop')) window.cartaTop = new Chart(document.getElementById('cTop'), { type: 'bar',
-      data: { labels: D.top.labels, datasets: [{ label: 'Penyaluran', data: D.top.rm, ...bar, maxBarThickness: 22 }] },
-      options: { indexAxis: 'y', maintainAspectRatio: false, onClick: keUrl(D.top.url), onHover: kursor,
-        plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: { label: c => fmtRM(c.parsed.x) } } },
-        scales: { x: { ...paksi, beginAtZero: true, ticks: { ...paksi.ticks, callback: shortRM, maxTicksLimit: 5, maxRotation: 0 } },
-                  y: { ...tanpaGrid, ticks: { ...tanpaGrid.ticks, ...labelPendek } } } } });
+    // 10 PPK teratas: bar mendatar bertindan ikut model. Kedudukan & jumlah daripada pelayan (semua model);
+    // menyembunyikan model melalui legenda tidak mengubah kedudukan atau label jumlah.
+    if (document.getElementById('cTop')) {
+      const jumlahLabel = { id: 'jumlahPpk', afterDatasetsDraw(c) {
+        const ctx = c.ctx, x = c.scales.x, y = c.scales.y;
+        ctx.save(); ctx.font = '600 11px ' + Chart.defaults.font.family; ctx.fillStyle = css('--epms-text'); ctx.textBaseline = 'middle';
+        D.top.rm.forEach((v, i) => ctx.fillText(shortRM(v), x.getPixelForValue(v) + 6, y.getPixelForValue(i)));
+        ctx.restore();
+      } };
+      window.cartaTop = new Chart(document.getElementById('cTop'), { type: 'bar', plugins: [jumlahLabel],
+        data: { labels: D.top.labels, datasets: D.top.model.map(m => ({ label: m.kod, data: m.rm, backgroundColor: m.warna, hoverBackgroundColor: m.warna,
+          borderColor: css('--epms-surface') || '#fff', borderWidth: { right: 1 }, borderSkipped: false, maxBarThickness: 22, nama: m.nama, url: m.url })) },
+        options: { indexAxis: 'y', maintainAspectRatio: false, onHover: kursor,
+          onClick: (e, el, c) => { if (el.length) location.href = c.data.datasets[el[0].datasetIndex].url[el[0].index]; },
+          interaction: { mode: 'nearest', axis: 'y', intersect: true },
+          layout: { padding: { right: 8 } },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 10, filter: (l, d) => d.datasets[l.datasetIndex].data.some(v => v > 0) } },
+            tooltip: { ...tooltip, displayColors: true, callbacks: {
+              title: c => D.top.labels[c[0].dataIndex],
+              label: c => { const tot = D.top.rm[c.dataIndex] || 1; return ' ' + c.dataset.label + ' (' + c.dataset.nama + '): ' + fmtRM(c.parsed.x) + ' · ' + (c.parsed.x / tot * 100).toFixed(1) + '%'; },
+              footer: c => 'Jumlah PPK: ' + fmtRM(D.top.rm[c[0].dataIndex]) } } },
+          scales: { x: { ...paksi, stacked: true, beginAtZero: true, suggestedMax: Math.max(...D.top.rm) * 1.14,
+                         ticks: { ...paksi.ticks, callback: shortRM, maxTicksLimit: 5, maxRotation: 0 } },
+                    y: { ...tanpaGrid, stacked: true, ticks: { ...tanpaGrid.ticks, ...labelPendek } } } } });
+    }
   }
   // Lukis selepas Inter dimuatkan (UI-01: elak label diukur dengan font fallback)
   Promise.all([document.fonts.load('400 12px Inter'), document.fonts.load('600 12px Inter')]).then(lukisCarta, lukisCarta);
