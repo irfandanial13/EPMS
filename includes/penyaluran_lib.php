@@ -235,9 +235,14 @@ function keadaan_rekod_edit(PDO $pdo, int $id, bool $kunci = false): ?array
     $sambungan = $ambil('SELECT sambungan_id FROM penyaluran_sambungan WHERE pendahulu_id = ? ORDER BY sambungan_id');
     $tiada = (int)$r['pendahulu_tiada_rekod'];
     $luarBiasa = !in_array($r['status'], STATUS_MANUAL, true) || !in_array($r['jenis'], JENIS_SAH, true);
+    $terkunci = $pendahulu || $sambungan || $tiada === 1 || $luarBiasa;
+    // Fasa 4.1 (D1): Perjanjian Sambungan AKTIF (berpaut kepada pendahulu atau ditanda Tiada Dalam Rekod, belum disambung)
+    // boleh ditamatkan: AKTIF → TAMAT. Rekod terkunci lain: status kekal nilai tersimpan (TAMAT tidak dikembalikan ke AKTIF).
+    $bolehTamat = !$luarBiasa && $r['jenis'] === 'SAMBUNG' && $r['status'] === 'AKTIF' && ($pendahulu || $tiada === 1) && !$sambungan;
     return [
         'rekod' => $r, 'pendahulu' => $pendahulu, 'sambungan' => $sambungan,
-        'terkunci' => $pendahulu || $sambungan || $tiada === 1 || $luarBiasa, 'luar_biasa' => $luarBiasa,
+        'terkunci' => $terkunci, 'luar_biasa' => $luarBiasa, 'boleh_tamat' => $bolehTamat,
+        'status_dibenar' => !$terkunci ? STATUS_MANUAL : ($bolehTamat ? ['AKTIF', 'TAMAT'] : [(string)$r['status']]),
         'token' => hash('sha256', json_encode([$id, (string)$r['jenis'], (string)$r['status'], $tiada, $pendahulu, $sambungan])),
     ];
 }
@@ -247,7 +252,8 @@ function keadaan_rekod_edit(PDO $pdo, int $id, bool $kunci = false): ?array
  *  BEGIN → kunci baris + julat pautan → baca semula keadaan → token borang mesti sama dengan keadaan semasa
  *  → sahkan medan dilindungi & musim terhadap nilai DB semasa → UPDATE lajur dibenarkan → COMMIT.
  * Sebarang kegagalan: ROLLBACK penuh (tiada simpanan separa).
- * Rekod terkunci: jenis & status TIDAK ditulis (nilai yang dihantar diabaikan; nilai DB kekal).
+ * Rekod terkunci: jenis & status TIDAK ditulis (nilai yang dihantar diabaikan; nilai DB kekal) — kecuali
+ * Fasa 4.1: Perjanjian Sambungan AKTIF boleh ditukar kepada TAMAT (jenis & pautan tetap tidak ditulis).
  *
  * @param array $data nilai lajur (kunci dalam KOLUM_EDIT; '' sudah ditukar kepada null oleh pemanggil)
  * @param ?string $tokenBorang token keadaan semasa borang dibuka (keadaan_rekod_edit()['token'])
@@ -266,7 +272,11 @@ function simpan_edit_rekod(PDO $pdo, int $id, array $data, ?string $tokenBorang)
         if ($tokenBorang === null || !hash_equals($k['token'], $tokenBorang)) { $pdo->rollBack(); return $gagal(MESEJ_KEADAAN_BERUBAH); }
 
         $errors = [];
-        if ($k['terkunci']) {
+        if ($k['terkunci'] && $k['boleh_tamat']) {
+            // Fasa 4.1: jenis tidak ditulis; status hanya AKTIF (tiada perubahan) atau TAMAT — disahkan terhadap keadaan dikunci
+            unset($data['jenis']);
+            if (!in_array($data['status'] ?? null, $k['status_dibenar'], true)) $errors[] = 'Status tidak sah.';
+        } elseif ($k['terkunci']) {
             $data = array_diff_key($data, array_flip(KOLUM_DILINDUNGI));
         } else {
             if (!in_array($data['jenis'] ?? null, JENIS_SAH, true)) $errors[] = 'Jenis tidak sah.';

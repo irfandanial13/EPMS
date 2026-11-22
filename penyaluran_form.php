@@ -26,6 +26,8 @@ if ($id) {
 $asal = $rec;   // nilai tersimpan (rekod lama) — untuk membenarkan data lama yang tidak diubah
 // Perjanjian Fasa 2/3: rekod dalam aliran sambungan — jenis & status kekal nilai tersimpan (pelayan berkuasa)
 $terkunci = (bool)($keadaan['terkunci'] ?? false);
+// Fasa 4.1: Perjanjian Sambungan AKTIF boleh ditamatkan (AKTIF → TAMAT); jenis & pautan kekal dikunci
+$bolehTamat = (bool)($keadaan['boleh_tamat'] ?? false);
 $pautan = $id ? pautan_rekod(db(), [$id]) : ['pendahulu' => [], 'sambungan' => []];
 // Keadaan panel pendahulu (rekod baharu): dipulihkan daripada POST jika borang dipaparkan semula
 $pendahuluPilihan = [];
@@ -40,7 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         else $rec[$k] = (string)($rec[$k] ?? '');
     }
     // Rekod terkunci: jenis & status kekal nilai tersimpan (SAMBUNG hanya ditetapkan oleh aliran sambungan)
-    if ($terkunci) { $rec['jenis'] = (string)$asal['jenis']; $rec['status'] = (string)$asal['status']; }
+    // (Fasa 4.1: status sambungan AKTIF diambil daripada borang dan disahkan terhadap status_dibenar)
+    if ($terkunci) { $rec['jenis'] = (string)$asal['jenis']; if (!$bolehTamat) $rec['status'] = (string)$asal['status']; }
     // Perjanjian Sambungan baharu sentiasa AKTIF (O-3); medan status tidak dipaparkan dalam mod ini
     if (!$id && $rec['jenis'] === 'SAMBUNG') $rec['status'] = 'AKTIF';
     if (!$id) {
@@ -75,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif (!isset(MODELS[$rec['model']])) $errors[] = 'Model tidak sah.';
     // Rekod terkunci: jenis/status tidak ditulis (nilai DB dikekalkan), jadi nilai tersimpan luar biasa tidak menyekat simpanan
     if (!$terkunci && !in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
-    if (!in_array($rec['status'], $terkunci ? [(string)$asal['status']] : STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
+    if (!in_array($rec['status'], $id ? $keadaan['status_dibenar'] : STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
 
     // A2: Kadar Sewa & Sewaan hanya untuk model SP/EP. Bagi model lain, nilai yang dihantar ditolak;
     // nilai lama yang tidak dihantar (medan dinyahaktif selepas tukar model) dikosongkan kepada 0.
@@ -220,7 +223,8 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
     </dl>
     <?php if ($terkunci): ?><p class="small text-muted mb-0 op-pautan-nota-kunci"><i class="bi bi-lock" aria-hidden="true"></i> <?= $keadaan['luar_biasa'] && !$pdhl && !$smbg && (int)$asal['pendahulu_tiada_rekod'] !== 1
         ? 'Jenis atau status rekod ini bukan nilai biasa dan dikekalkan seperti tersimpan. Hubungi pentadbir sistem untuk pembetulan.'
-        : 'Jenis dan status rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini.' ?></p><?php endif; ?></div>
+        : ($bolehTamat ? 'Jenis dan pautan rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini. Status boleh ditukar kepada TAMAT apabila perjanjian sambungan ini tamat.'
+        : 'Jenis dan status rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini.') ?></p><?php endif; ?></div>
   </section>
 <?php endif; ?>
 
@@ -357,7 +361,13 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
   <section class="op-seksyen">
     <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-flag" aria-hidden="true"></i></span><div><h2>Status &amp; Catatan</h2><p>Status projek dan nota tindakan.</p></div></div>
     <div class="row g-3">
-      <?php if ($terkunci): ?>
+      <?php if ($bolehTamat): ?>
+      <div class="col-md-4 col-xl-3">
+        <label class="form-label" for="status">Status <span class="small text-muted fw-normal">(semasa: <?= lencana_status($asal['status']) ?>)</span></label>
+        <select name="status" id="status" class="form-select<?= $tak('status') ?>"<?= isset($ralatMedan['status']) ? ' aria-invalid="true"' : '' ?> aria-describedby="<?= isset($ralatMedan['status']) ? 'ralat-status ' : '' ?>notaTamatSambungan"><?= $opt('AKTIF', $rec['status']) . $opt('TAMAT', $rec['status']) ?></select><?= $fb('status') ?>
+        <div class="form-text" id="notaTamatSambungan">TAMAT: perjanjian sambungan ini telah tamat. Pautan dan status perjanjian terdahulu tidak berubah. TAMAT tidak boleh dikembalikan kepada AKTIF melalui borang.</div>
+      </div>
+      <?php elseif ($terkunci): ?>
       <div class="col-md-4 col-xl-3">
         <span class="form-label d-block">Status</span>
         <div class="form-control-plaintext"><?= lencana_status($asal['status']) ?> <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikunci</span></div>
