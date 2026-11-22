@@ -71,6 +71,25 @@ function pastikan_skema(PDO $pdo): array
         $log[] = 'Cipta jadual penyaluran_sambungan';
     }
 
+    // Fasa 4.2: jejak audit pembetulan (cth pembetulan jenis). TIADA foreign key: sejarah audit kekal walaupun
+    // rekod penyaluran dipadam. Nama pengguna disalin supaya sejarah kekal walaupun akaun pengguna dipadam.
+    $ada = $pdo->query("SHOW TABLES LIKE 'penyaluran_audit'")->fetch();
+    if (!$ada) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS penyaluran_audit (
+            id             INT AUTO_INCREMENT PRIMARY KEY,
+            penyaluran_id  INT NOT NULL,
+            medan          VARCHAR(64)  NOT NULL,
+            nilai_lama     VARCHAR(255) NULL,
+            nilai_baru     VARCHAR(255) NULL,
+            sebab          VARCHAR(500) NOT NULL,
+            pengguna_id    INT NULL,
+            pengguna_nama  VARCHAR(50)  NULL,
+            created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_audit_rekod (penyaluran_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $log[] = 'Cipta jadual penyaluran_audit';
+    }
+
     return $log;
 }
 

@@ -188,7 +188,7 @@ require __DIR__ . '/includes/header.php';
         $ringkas = $r['ppk_kod'] . ' · ' . $r['musim'] . ' · ' . ($r['projek'] ?: '-') . ' · ' . $r['model'];
         $pdhl = $pautan['pendahulu'][$r['id']] ?? []; $smbg = $pautan['sambungan'][$r['id']] ?? [];
         $kp = keadaan_pautan($r, count($pdhl));
-        $notaJenis = ['tiada_rekod' => ['Tiada Dalam Rekod', LABEL_TIADA_REKOD], 'lama' => ['belum dipautkan', 'Sambungan lama (import Excel): belum dipautkan'],
+        $notaJenis = ['tiada_rekod' => ['Tiada Dalam Rekod', LABEL_TIADA_REKOD], 'lama' => ['belum dipautkan', LABEL_SAMBUNGAN_LAMA],
                       'dipautkan' => ['← ' . count($pdhl) . ' terdahulu', 'Dipautkan kepada ' . count($pdhl) . ' perjanjian terdahulu']][$kp] ?? null; ?>
         <tr class="op-baris">
           <td class="op-lajur-butiran no-print"><button type="button" class="btn op-btn-ikon op-togol-butiran" data-bs-toggle="collapse" data-bs-target="#<?= $bid ?>"
@@ -236,7 +236,7 @@ require __DIR__ . '/includes/header.php';
             <?php if ($kp || $smbg): ?>
               <div class="op-butiran-item op-butiran-pautan"><dt>Perjanjian terdahulu</dt><dd>
                 <?php if ($kp === 'tiada_rekod'): ?><span class="st-badge st-kuning"><?= e(LABEL_TIADA_REKOD) ?></span>
-                <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu">Sambungan lama: belum dipautkan</span>
+                <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu"><?= e(LABEL_SAMBUNGAN_LAMA) ?></span>
                 <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_form.php?id=<?= (int)$pr['id'] ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
                 <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd></div>
               <div class="op-butiran-item op-butiran-pautan"><dt>Disambung oleh</dt><dd>

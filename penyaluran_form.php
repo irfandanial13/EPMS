@@ -17,10 +17,35 @@ $rec['jenis'] = 'ASAL';
 $rec['status'] = 'AKTIF';
 $rec['model'] = 'LKPPK';
 
+// Fasa 4.2: tindakan khas "Betulkan Jenis" — POST berasingan (aksi=betul_jenis), CSRF, pengesahan eksplisit,
+// token keadaan Fasa 4.3; betul_jenis_rekod() mengunci rekod, mengesahkan semula & menulis audit dalam satu transaksi.
+// Dikendalikan SEBELUM keadaan dibaca supaya borang yang dipapar semula menunjukkan keadaan terkini.
+$ralatBetul = [];
+$betulDihantar = ['jenis_baru' => '', 'sebab' => ''];
+$postBetul = $_SERVER['REQUEST_METHOD'] === 'POST' && $id && ($_POST['aksi'] ?? '') === 'betul_jenis';
+if ($postBetul) {
+    csrf_check();
+    $betulDihantar = ['jenis_baru' => is_string($_POST['jenis_baru'] ?? null) ? $_POST['jenis_baru'] : '',
+                      'sebab' => is_string($_POST['sebab'] ?? null) ? $_POST['sebab'] : ''];
+    if (($_POST['sahkan_betul'] ?? '') !== '1') {
+        $ralatBetul[] = 'Sila tandakan pengesahan sebelum membetulkan jenis.';
+    } else {
+        $pengguna = current_user();
+        $hasil = betul_jenis_rekod(db(), $id, $betulDihantar['jenis_baru'], $betulDihantar['sebab'],
+            is_string($_POST['keadaan'] ?? null) ? $_POST['keadaan'] : null, (int)($pengguna['id'] ?? 0) ?: null, $pengguna['username'] ?? null);
+        if ($hasil['ok']) {
+            flash('Jenis rekod #' . $id . ' telah dibetulkan kepada ' . LABEL_JENIS[$betulDihantar['jenis_baru']] . '. Pembetulan direkodkan dalam sejarah audit.');
+            redirect('penyaluran_form.php?id=' . $id . ($kembali !== '' ? '&kembali=' . urlencode($kembali) : ''));
+        }
+        $ralatBetul = $hasil['errors'];
+    }
+}
+
 // Fasa 4.3: keadaan rekod (pautan, penanda, token) untuk paparan. Semasa simpan, keadaan dibaca semula di bawah kunci.
 $keadaan = null;
 if ($id) {
-    $keadaan = keadaan_rekod_edit(db(), $id) ?: redirect($urlKembali);
+    $keadaan = keadaan_rekod_edit(db(), $id);
+    if (!$keadaan) { foreach ($ralatBetul as $er) flash($er, 'danger'); redirect($urlKembali); }
     $rec = $keadaan['rekod'];
 }
 $asal = $rec;   // nilai tersimpan (rekod lama) — untuk membenarkan data lama yang tidak diubah
@@ -29,12 +54,19 @@ $terkunci = (bool)($keadaan['terkunci'] ?? false);
 // Fasa 4.1: Perjanjian Sambungan AKTIF boleh ditamatkan (AKTIF → TAMAT); jenis & pautan kekal dikunci
 $bolehTamat = (bool)($keadaan['boleh_tamat'] ?? false);
 $pautan = $id ? pautan_rekod(db(), [$id]) : ['pendahulu' => [], 'sambungan' => []];
+// Fasa 4.2: kelayakan "Betulkan Jenis" (paparan; disahkan semula di bawah kunci semasa simpan) & sejarah audit
+$auditAda = $id && audit_tersedia(db());
+$sekatBetul = $keadaan ? sebab_tidak_layak_betul_jenis($keadaan) : null;
+$bolehBetul = $auditAda && $sekatBetul === null;
+$jenisSasaran = ($asal['jenis'] ?? '') === 'ASAL' ? 'SAMBUNG' : 'ASAL';
+$kesanBetul = $bolehBetul ? kesan_betul_jenis($asal, $jenisSasaran) : null;
+$sejarahBetul = $auditAda ? sejarah_betul_jenis(db(), $id) : [];
 // Keadaan panel pendahulu (rekod baharu): dipulihkan daripada POST jika borang dipaparkan semula
 $pendahuluPilihan = [];
 $tiadaRekodDipilih = false;
 
 $errors = [];
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$postBetul) {
     csrf_check();
     // Semasa edit, medan yang tiada dalam borang kekal dengan nilai asal (tidak dikosongkan)
     foreach ($fields as $k) {
@@ -43,7 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     // Rekod terkunci: jenis & status kekal nilai tersimpan (SAMBUNG hanya ditetapkan oleh aliran sambungan)
     // (Fasa 4.1: status sambungan AKTIF diambil daripada borang dan disahkan terhadap status_dibenar)
-    if ($terkunci) { $rec['jenis'] = (string)$asal['jenis']; if (!$bolehTamat) $rec['status'] = (string)$asal['status']; }
+    if ($terkunci && !$bolehTamat) $rec['status'] = (string)$asal['status'];
+    // Fasa 4.2: Edit tidak pernah mengubah jenis (nilai dihantar diabaikan) — gunakan tindakan "Betulkan Jenis"
+    if ($id) $rec['jenis'] = (string)$asal['jenis'];
     // Perjanjian Sambungan baharu sentiasa AKTIF (O-3); medan status tidak dipaparkan dalam mod ini
     if (!$id && $rec['jenis'] === 'SAMBUNG') $rec['status'] = 'AKTIF';
     if (!$id) {
@@ -76,8 +110,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($rec['model'] === '') $errors[] = 'Sila pilih Model.';
     elseif (!isset(MODELS[$rec['model']])) $errors[] = 'Model tidak sah.';
-    // Rekod terkunci: jenis/status tidak ditulis (nilai DB dikekalkan), jadi nilai tersimpan luar biasa tidak menyekat simpanan
-    if (!$terkunci && !in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
+    // Jenis disahkan untuk rekod baharu sahaja (Edit tidak menulis jenis — Fasa 4.2)
+    if (!$id && !in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
     if (!in_array($rec['status'], $id ? $keadaan['status_dibenar'] : STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
 
     // A2: Kadar Sewa & Sewaan hanya untuk model SP/EP. Bagi model lain, nilai yang dihantar ditolak;
@@ -150,6 +184,7 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
   </div>
   <a href="<?= e($urlKembali) ?>" class="btn btn-outline-secondary btn-sm no-print"><i class="bi bi-arrow-left" aria-hidden="true"></i> Kembali</a>
 </div>
+<?php if ($ralatBetul && !$bolehBetul): /* Fasa 4.2: pembetulan ditolak & rekod kini tidak layak — papar di atas */ ?><div role="alert" tabindex="-1" id="ralatBetulJenis" class="op-ralat alert alert-danger"><b><i class="bi bi-exclamation-octagon" aria-hidden="true"></i> Pembetulan jenis tidak disimpan:</b><ul class="mb-0 mt-1"><?php foreach ($ralatBetul as $er): ?><li><?= e($er) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <?php if ($errors): ?><div role="alert" tabindex="-1" id="ringkasanRalat" class="op-ralat alert alert-danger"><b><i class="bi bi-exclamation-octagon" aria-hidden="true"></i> Rekod tidak disimpan. Sila betulkan:</b><ul class="mb-0 mt-1"><?php foreach ($errors as $er): ?><li><?= e($er) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
 <form method="post" class="card op-borang" id="borangRekod" aria-label="<?= e($pageTitle) ?>" data-validasi>
@@ -214,7 +249,7 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
     <div><dl class="op-pautan mb-0">
       <dt>Perjanjian terdahulu</dt>
       <dd><?php if ($kp === 'tiada_rekod'): ?><span class="st-badge st-kuning"><?= e(LABEL_TIADA_REKOD) ?></span>
-        <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu">Sambungan lama: belum dipautkan</span><span class="d-block small text-muted mt-1">Rekod sejarah (import Excel) tanpa pautan. Ini berbeza daripada "<?= e(LABEL_TIADA_REKOD) ?>".</span>
+        <?php elseif ($kp === 'lama'): ?><span class="st-badge st-kelabu"><?= e(LABEL_SAMBUNGAN_LAMA) ?></span><span class="d-block small text-muted mt-1">Perjanjian sambungan tanpa pautan kepada perjanjian terdahulu. Ini berbeza daripada "<?= e(LABEL_TIADA_REKOD) ?>".</span>
         <?php elseif ($pdhl): ?><ul class="op-pautan-senarai"><?php foreach ($pdhl as $pr): ?><li><a href="penyaluran_form.php?id=<?= (int)$pr['id'] ?>"><?= e(teks_rekod_pautan($pr)) ?></a> <?= lencana_status($pr['status']) ?></li><?php endforeach; ?></ul>
         <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd>
       <dt>Disambung oleh</dt>
@@ -240,16 +275,14 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
           <?php endforeach; ?>
         </select><?= $fb('ppk_id') ?>
       </div>
-      <?php if ($id && $terkunci): ?>
+      <?php if ($id): /* Fasa 4.2: jenis sentiasa baca sahaja dalam Edit; pembetulan melalui "Betulkan Jenis" */ ?>
       <div class="col-md-6 col-xl-3">
         <span class="form-label d-block">Jenis</span>
         <div class="form-control-plaintext"><?= $asal['jenis'] === 'SAMBUNG' ? '<span class="st-badge st-biru">Sambung Perjanjian</span>' : '<span class="st-badge st-kelabu">Asal</span>' ?>
-          <span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikunci</span></div>
-      </div>
-      <?php elseif ($id): ?>
-      <div class="col-md-6 col-xl-3">
-        <label class="form-label" for="jenis">Jenis</label>
-        <select name="jenis" id="jenis" class="form-select<?= $tak('jenis') ?>"<?= $aria('jenis') ?>><?= $opt('ASAL', $rec['jenis'], 'Asal') . $opt('SAMBUNG', $rec['jenis'], 'Sambung Perjanjian') ?></select><?= $fb('jenis') ?>
+          <?php if ($bolehBetul): ?><button type="button" class="btn btn-outline-secondary btn-sm py-0 ms-1 no-print" id="butangBetulJenis" data-bs-toggle="modal" data-bs-target="#modalBetulJenis"><i class="bi bi-pencil-square" aria-hidden="true"></i> Betulkan Jenis</button>
+          <?php else: ?><span class="medan-auto-tag"><i class="bi bi-lock" aria-hidden="true"></i> Dikunci</span><?php endif; ?></div>
+        <?php if ($sekatBetul !== null): ?><div class="form-text" id="notaSekatBetul"><?= e($sekatBetul) ?></div>
+        <?php elseif (!$auditAda): ?><div class="form-text" id="notaSekatBetul">Pembetulan jenis belum tersedia: jadual audit belum dicipta. Hubungi pentadbir sistem untuk menjalankan migrasi.</div><?php endif; ?>
       </div>
       <?php endif; ?>
       <div class="col-md-4 col-xl-4">
@@ -394,6 +427,20 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
     </div>
   </section>
 
+<?php if ($sejarahBetul): ?>
+  <section class="op-seksyen" aria-labelledby="tajukSejarahBetul">
+    <div class="op-seksyen-kepala"><span class="op-seksyen-ikon"><i class="bi bi-clock-history" aria-hidden="true"></i></span><div><h2 id="tajukSejarahBetul">Sejarah Pembetulan Jenis</h2><p>Jejak audit pembetulan jenis perjanjian rekod ini.</p></div></div>
+    <div class="table-wrap"><table class="table table-sm table-data mb-0" id="jadualSejarahBetul">
+      <thead><tr><th class="text-start">Tarikh / Masa</th><th>Jenis lama</th><th>Jenis baharu</th><th class="text-start">Pengguna</th><th class="text-start">Sebab</th></tr></thead>
+      <tbody><?php foreach ($sejarahBetul as $sb): ?>
+        <tr><td class="text-start text-nowrap"><?= e(date('d/m/Y H:i', strtotime($sb['created_at']))) ?></td>
+          <td><?= e(LABEL_JENIS[$sb['nilai_lama']] ?? $sb['nilai_lama']) ?></td><td><?= e(LABEL_JENIS[$sb['nilai_baru']] ?? $sb['nilai_baru']) ?></td>
+          <td class="text-start"><?= e($sb['pengguna_nama'] ?? '-') ?></td><td class="text-start op-sebab-audit"><?= e($sb['sebab']) ?></td></tr>
+      <?php endforeach; ?></tbody>
+    </table></div>
+  </section>
+<?php endif; ?>
+
   <div class="op-bar-tindakan">
     <span class="op-bar-nota"><span class="op-wajib">*</span> Medan wajib</span>
     <div class="d-flex gap-2">
@@ -402,6 +449,55 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
     </div>
   </div>
 </form>
+<?php if ($bolehBetul):
+    $ppkRekod = array_column(senarai_ppk(), null, 'id')[(int)$asal['ppk_id']] ?? null;
+    $tanda = fn(float $v, callable $f) => ($v < 0 ? '−' : '+') . $f(abs($v));
+    $arah = $kesanBetul['tanda'] < 0; ?>
+<!-- Fasa 4.2: Betulkan Jenis — POST berasingan; hanya jenis ditukar, dengan sebab & jejak audit -->
+<div class="modal fade" id="modalBetulJenis" tabindex="-1" aria-labelledby="modalBetulJenisTajuk" aria-hidden="true"<?= $ralatBetul ? ' data-buka="1"' : '' ?>>
+  <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+  <form method="post" id="borangBetulJenis" action="penyaluran_form.php?id=<?= (int)$id ?><?= $kembali !== '' ? '&amp;kembali=' . e(urlencode($kembali)) : '' ?>">
+    <?= csrf_field() ?>
+    <input type="hidden" name="aksi" value="betul_jenis">
+    <input type="hidden" name="keadaan" value="<?= e($keadaan['token']) ?>">
+    <input type="hidden" name="kembali" value="<?= e($kembali) ?>">
+    <div class="modal-header"><h2 class="modal-title h6" id="modalBetulJenisTajuk"><i class="bi bi-pencil-square" aria-hidden="true"></i> Betulkan Jenis Perjanjian</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body">
+      <?php if ($ralatBetul): ?><div role="alert" class="alert alert-danger small py-2" id="ralatBetulJenis"><b>Pembetulan tidak disimpan:</b><ul class="mb-0"><?php foreach ($ralatBetul as $er): ?><li><?= e($er) ?></li><?php endforeach; ?></ul></div><?php endif; ?>
+      <p class="mb-1 small text-muted">Rekod</p>
+      <p class="fw-semibold mb-3" id="bjIdentiti">#<?= (int)$id ?> · <?= e($ppkRekod ? $ppkRekod['kod'] . ' ' . $ppkRekod['nama'] : '-') ?> · <?= e($asal['projek'] ?: '-') ?> · <?= e($asal['no_blok'] ?: '-') ?> · <?= e($asal['model']) ?> · musim <?= e($asal['musim']) ?> · <?= lencana_status($asal['status']) ?></p>
+      <fieldset class="mb-3"><legend class="form-label fs-6 mb-1">Jenis baharu <?= $wajib ?></legend>
+        <?php foreach (LABEL_JENIS as $j => $lbl): $semasa = $j === $asal['jenis']; ?>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="jenis_baru" id="bjJenis<?= $j ?>" value="<?= $j ?>"<?= $semasa ? ' disabled' : ' required' ?><?= !$semasa && $betulDihantar['jenis_baru'] === $j ? ' checked' : '' ?>>
+            <label class="form-check-label" for="bjJenis<?= $j ?>"><?= e($lbl) ?><?= $semasa ? ' <span class="small text-muted">(semasa)</span>' : '' ?></label></div>
+        <?php endforeach; ?>
+      </fieldset>
+      <div class="border rounded p-3 mb-3" id="bjKesan" aria-live="polite">
+        <p class="fw-semibold mb-2"><?= e(LABEL_JENIS[$asal['jenis']]) ?> → <?= e(LABEL_JENIS[$jenisSasaran]) ?></p>
+        <p class="mb-1"><b>Kumulatif</b> (Jumlah Asal):</p>
+        <ul class="mb-2" id="bjKesanKumulatif">
+          <li><?= $arah ? '1 rekod dikeluarkan' : '1 rekod ditambah' ?></li>
+          <li>Bil Peladang: <?= e($tanda($kesanBetul['bil'], 'nint')) ?></li>
+          <li>Keluasan: <?= e($tanda($kesanBetul['luas'], 'ha')) ?> ha</li>
+          <li>Jumlah Penyaluran: <?= e($tanda($kesanBetul['rm'], fn($v) => 'RM ' . rm($v))) ?></li>
+        </ul>
+        <p class="mb-1"><b>Semasa</b>: tiada perubahan (status <?= lencana_status($asal['status']) ?> kekal).</p>
+        <p class="mb-0 small">Tiada pautan perjanjian terdahulu atau sambungan akan dicipta atau dibuang. Status rekod ini dan rekod lain tidak berubah.<?= $jenisSasaran === 'SAMBUNG' ? ' Rekod akan dipaparkan sebagai "' . e(LABEL_SAMBUNGAN_LAMA) . '".' : '' ?></p>
+      </div>
+      <label class="form-label" for="bjSebab">Sebab pembetulan <?= $wajib ?></label>
+      <textarea class="form-control" name="sebab" id="bjSebab" rows="3" required minlength="<?= SEBAB_BETUL_MIN ?>" maxlength="<?= SEBAB_BETUL_MAKS ?>" aria-describedby="bjSebabNota"><?= e($betulDihantar['sebab']) ?></textarea>
+      <div class="form-text" id="bjSebabNota"><?= SEBAB_BETUL_MIN ?>–<?= SEBAB_BETUL_MAKS ?> aksara. Disimpan dalam sejarah audit. <span id="bjKiraan"></span></div>
+      <div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="sahkan_betul" value="1" id="bjSahkan" required>
+        <label class="form-check-label" for="bjSahkan">Saya mengesahkan pembetulan jenis ini dan kesannya pada Kumulatif.</label></div>
+      <p class="small text-muted mt-2 mb-0">Perubahan lain pada borang Edit yang belum disimpan tidak akan disimpan oleh tindakan ini.</p>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+      <button type="submit" class="btn btn-sipadi btn-sm" id="bjHantar"><i class="bi bi-check2-circle" aria-hidden="true"></i> Sahkan Pembetulan</button></div>
+  </form>
+  </div></div>
+</div>
+<?php endif; ?>
 <?php if (!$id): ?>
 <!-- Perjanjian Fasa 3: pengesahan sebelum Perjanjian Sambungan disimpan (Q3) -->
 <div class="modal fade" id="modalSambungan" tabindex="-1" aria-labelledby="modalSambunganTajuk" aria-hidden="true">
@@ -646,6 +742,28 @@ $('kadarMo').addEventListener('change', e => {
     disahkan = true; sah.value = '1'; modal.hide();
     if (borang.requestSubmit) borang.requestSubmit(); else borang.submit();
   });
+})();
+
+// Fasa 4.2: dialog Betulkan Jenis (paparan sahaja — betul_jenis_rekod() di pelayan kekal sebagai pengesahan muktamad)
+(function () {
+  const modalEl = $('modalBetulJenis');
+  if (!modalEl) return;
+  const borang = $('borangBetulJenis'), sebab = $('bjSebab'), sahkan = $('bjSahkan'), hantar = $('bjHantar'), kiraan = $('bjKiraan');
+  const MIN = +sebab.getAttribute('minlength'), MAKS = +sebab.getAttribute('maxlength');
+  function semak() {
+    const n = sebab.value.trim().length;
+    kiraan.textContent = n + '/' + MAKS + (n > 0 && n < MIN ? ' (sekurang-kurangnya ' + MIN + ')' : '');
+    hantar.disabled = !(borang.querySelector('input[name=jenis_baru]:checked') && n >= MIN && n <= MAKS && sahkan.checked);
+  }
+  borang.addEventListener('input', semak); borang.addEventListener('change', semak); semak();
+  borang.addEventListener('submit', e => {
+    if (hantar.disabled || borang.dataset.dihantar) { e.preventDefault(); return; }
+    borang.dataset.dihantar = '1';
+    hantar.disabled = true;
+    hantar.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Menyimpan…';
+  });
+  modalEl.addEventListener('shown.bs.modal', () => (borang.querySelector('input[name=jenis_baru]:not(:disabled)') || sebab).focus());
+  if (modalEl.dataset.buka === '1') bootstrap.Modal.getOrCreateInstance(modalEl).show();   // dipapar semula selepas ralat
 })();
 
 // UI-04 (paparan sahaja): ringkasan jumlah, elak hantar berganda, fokus pada ralat

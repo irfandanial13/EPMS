@@ -254,6 +254,7 @@ function keadaan_rekod_edit(PDO $pdo, int $id, bool $kunci = false): ?array
  * Sebarang kegagalan: ROLLBACK penuh (tiada simpanan separa).
  * Rekod terkunci: jenis & status TIDAK ditulis (nilai yang dihantar diabaikan; nilai DB kekal) — kecuali
  * Fasa 4.1: Perjanjian Sambungan AKTIF boleh ditukar kepada TAMAT (jenis & pautan tetap tidak ditulis).
+ * Fasa 4.2: jenis tidak ditulis untuk SEMUA rekod — gunakan betul_jenis_rekod().
  *
  * @param array $data nilai lajur (kunci dalam KOLUM_EDIT; '' sudah ditukar kepada null oleh pemanggil)
  * @param ?string $tokenBorang token keadaan semasa borang dibuka (keadaan_rekod_edit()['token'])
@@ -272,15 +273,14 @@ function simpan_edit_rekod(PDO $pdo, int $id, array $data, ?string $tokenBorang)
         if ($tokenBorang === null || !hash_equals($k['token'], $tokenBorang)) { $pdo->rollBack(); return $gagal(MESEJ_KEADAAN_BERUBAH); }
 
         $errors = [];
-        if ($k['terkunci'] && $k['boleh_tamat']) {
-            // Fasa 4.1: jenis tidak ditulis; status hanya AKTIF (tiada perubahan) atau TAMAT — disahkan terhadap keadaan dikunci
-            unset($data['jenis']);
-            if (!in_array($data['status'] ?? null, $k['status_dibenar'], true)) $errors[] = 'Status tidak sah.';
-        } elseif ($k['terkunci']) {
-            $data = array_diff_key($data, array_flip(KOLUM_DILINDUNGI));
-        } else {
-            if (!in_array($data['jenis'] ?? null, JENIS_SAH, true)) $errors[] = 'Jenis tidak sah.';
-            if (!in_array($data['status'] ?? null, STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
+        // Fasa 4.2: jenis TIDAK PERNAH ditulis oleh simpan Edit (nilai dihantar diabaikan untuk semua rekod).
+        // Pembetulan jenis hanya melalui betul_jenis_rekod() (pengesahan, sebab, jejak audit).
+        unset($data['jenis']);
+        if ($k['terkunci'] && !$k['boleh_tamat']) {
+            unset($data['status']);                                  // rekod terkunci: status kekal nilai DB
+        } elseif (!in_array($data['status'] ?? null, $k['status_dibenar'], true)) {
+            // Tidak terkunci: AKTIF/TAMAT. Fasa 4.1: sambungan AKTIF → AKTIF/TAMAT (disahkan terhadap keadaan dikunci)
+            $errors[] = 'Status tidak sah.';
         }
         // Musim format lama dibenarkan hanya jika sama dengan nilai DB semasa (bukan nilai semasa borang dibuka)
         if (array_key_exists('musim', $data) && !musim_format_sah((string)$data['musim']) && (string)$data['musim'] !== (string)$k['rekod']['musim']) {
@@ -304,9 +304,111 @@ function simpan_edit_rekod(PDO $pdo, int $id, array $data, ?string $tokenBorang)
     return ['ok' => true, 'errors' => []];
 }
 
+/* ---------- Fasa 4.2: pembetulan jenis terkawal (ASAL ↔ SAMBUNG) ----------
+ * Hanya melalui tindakan khas "Betulkan Jenis": satu rekod, pengesahan, sebab wajib, jejak audit.
+ * Hanya jenis ditulis — status, pautan, penanda Tiada Dalam Rekod dan rekod lain tidak disentuh.
+ * Kumulatif (jenis = ASAL) berubah; Semasa (status = AKTIF) tidak berubah.
+ */
+
+const SEBAB_BETUL_MIN = 10;
+const SEBAB_BETUL_MAKS = 500;
+const LABEL_JENIS = ['ASAL' => 'Asal', 'SAMBUNG' => 'Sambung Perjanjian'];
+
+/** Jadual audit wujud? (Sebelum migrasi dijalankan, pembetulan jenis tidak tersedia — tiada ralat.) */
+function audit_tersedia(PDO $pdo): bool
+{
+    return (bool)$pdo->query("SHOW TABLES LIKE 'penyaluran_audit'")->fetch();
+}
+
+/**
+ * Kelayakan pembetulan jenis berdasarkan keadaan_rekod_edit(): null jika layak, atau sebab disekat (mesej pengguna).
+ * Layak hanya jika tiada pautan pendahulu/sambungan, penanda Tiada Dalam Rekod OFF, dan jenis/status nilai biasa.
+ */
+function sebab_tidak_layak_betul_jenis(array $k): ?string
+{
+    // Pautan & penanda disemak dahulu: pendahulu berstatus SAMBUNG (normal) ditanda luar_biasa oleh keadaan_rekod_edit()
+    // kerana SAMBUNG bukan STATUS_MANUAL — sebab yang tepat untuknya ialah pautan, bukan nilai luar biasa.
+    if ($k['pendahulu']) return 'Rekod ini dipautkan kepada perjanjian terdahulu. Pembetulan jenis memerlukan pembatalan sambungan terlebih dahulu.';
+    if ($k['sambungan']) return 'Rekod ini telah disambung oleh perjanjian lain. Pembetulan jenis memerlukan pembatalan sambungan terlebih dahulu.';
+    if ((int)$k['rekod']['pendahulu_tiada_rekod'] === 1) return 'Rekod ini ditanda ' . LABEL_TIADA_REKOD . '. Pembetulan jenis memerlukan pembatalan sambungan terlebih dahulu.';
+    if ($k['luar_biasa']) return 'Jenis atau status rekod ini bukan nilai biasa. Hubungi pentadbir sistem untuk pembetulan.';
+    return null;
+}
+
+/**
+ * Kesan pembetulan jenis pada Kumulatif (jenis = ASAL), dikira daripada nilai sebenar rekod.
+ * ASAL → SAMBUNG: rekod dikeluarkan daripada Kumulatif (tanda −1); SAMBUNG → ASAL: ditambah (+1). Semasa tidak berubah.
+ * @return array{tanda:int, rekod:int, bil:int, luas:float, rm:float}
+ */
+function kesan_betul_jenis(array $rekod, string $jenisBaru): array
+{
+    $t = $jenisBaru === 'ASAL' ? 1 : -1;
+    return ['tanda' => $t, 'rekod' => $t, 'bil' => $t * (int)$rekod['bil_peladang'], 'luas' => $t * (float)$rekod['luas_ha'],
+            'rm' => $t * round((float)$rekod['sewaan'] + (float)$rekod['modal_operasi'], 2)];
+}
+
+/**
+ * Betulkan jenis satu rekod secara atomik:
+ *  BEGIN → kunci baris + julat pautan (keadaan_rekod_edit) → token keadaan (hash_equals) → kelayakan semasa
+ *  → jenis baharu sah & berbeza → sebab 10–500 aksara → UPDATE jenis sahaja (tepat 1 baris) → INSERT audit → COMMIT.
+ * Sebarang kegagalan: ROLLBACK (jenis & audit bersama). CSRF & log masuk disemak oleh pemanggil (lapisan permintaan).
+ * @return array{ok:bool, errors:string[]}
+ */
+function betul_jenis_rekod(PDO $pdo, int $id, $jenisBaru, $sebab, ?string $tokenBorang, ?int $olehId, ?string $olehNama): array
+{
+    $gagal = fn(string ...$e) => ['ok' => false, 'errors' => $e];
+    if (!audit_tersedia($pdo)) return $gagal('Pembetulan jenis belum tersedia: jadual audit belum dicipta. Hubungi pentadbir sistem untuk menjalankan migrasi.');
+    $jenisBaru = is_string($jenisBaru) ? $jenisBaru : '';
+    $sebab = is_string($sebab) ? trim($sebab) : '';
+
+    $pdo->beginTransaction();
+    try {
+        $k = keadaan_rekod_edit($pdo, $id, true);
+        if (!$k) { $pdo->rollBack(); return $gagal('Rekod ini tidak lagi wujud (mungkin telah dipadam). Tiada perubahan disimpan.'); }
+        if ($tokenBorang === null || !hash_equals($k['token'], $tokenBorang)) { $pdo->rollBack(); return $gagal(MESEJ_KEADAAN_BERUBAH); }
+        $sekat = sebab_tidak_layak_betul_jenis($k);
+        if ($sekat !== null) { $pdo->rollBack(); return $gagal($sekat); }
+
+        $jenisLama = (string)$k['rekod']['jenis'];
+        $errors = [];
+        if (!in_array($jenisBaru, JENIS_SAH, true)) $errors[] = 'Jenis baharu tidak sah.';
+        elseif ($jenisBaru === $jenisLama) $errors[] = 'Jenis baharu sama dengan jenis semasa. Tiada pembetulan diperlukan.';
+        $panjang = mb_strlen($sebab);
+        if ($panjang < SEBAB_BETUL_MIN) $errors[] = 'Sebab pembetulan wajib diisi (sekurang-kurangnya ' . SEBAB_BETUL_MIN . ' aksara).';
+        elseif ($panjang > SEBAB_BETUL_MAKS) $errors[] = 'Sebab pembetulan terlalu panjang (maksimum ' . SEBAB_BETUL_MAKS . ' aksara).';
+        if ($errors) { $pdo->rollBack(); return $gagal(...$errors); }
+
+        $st = $pdo->prepare('UPDATE penyaluran SET jenis = ? WHERE id = ? AND jenis = ?');
+        $st->execute([$jenisBaru, $id, $jenisLama]);
+        if ($st->rowCount() !== 1) throw new RuntimeException("Pembetulan jenis rekod #$id: {$st->rowCount()} baris dikemas kini (jangka 1).");
+        $pdo->prepare('INSERT INTO penyaluran_audit (penyaluran_id, medan, nilai_lama, nilai_baru, sebab, pengguna_id, pengguna_nama) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$id, 'jenis', $jenisLama, $jenisBaru, $sebab, $olehId, $olehNama !== null ? mb_substr($olehNama, 0, 50) : null]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e instanceof PDOException && in_array((int)($e->errorInfo[1] ?? 0), [1205, 1213], true)) {
+            return $gagal('Rekod ini sedang dikemas kini oleh pengguna lain. Tiada perubahan disimpan. Sila cuba semula sebentar lagi.');
+        }
+        throw $e;
+    }
+    return ['ok' => true, 'errors' => []];
+}
+
+/** Sejarah pembetulan jenis bagi satu rekod (terkini dahulu). Kosong jika jadual audit belum wujud. */
+function sejarah_betul_jenis(PDO $pdo, int $id): array
+{
+    if (!audit_tersedia($pdo)) return [];
+    $st = $pdo->prepare("SELECT id, nilai_lama, nilai_baru, sebab, pengguna_nama, created_at FROM penyaluran_audit
+        WHERE penyaluran_id = ? AND medan = 'jenis' ORDER BY created_at DESC, id DESC");
+    $st->execute([$id]);
+    return $st->fetchAll();
+}
+
 /* ---------- Perjanjian Fasa 3: paparan (baca sahaja) ---------- */
 
 const LABEL_TIADA_REKOD = 'Perjanjian Asal Tiada Dalam Rekod';
+/** Fasa 4.2: label neutral bagi SAMBUNG tanpa pautan & tanpa penanda (sejarah atau hasil pembetulan jenis). */
+const LABEL_SAMBUNGAN_LAMA = 'Sambungan lama — belum dipautkan';
 /** Status → [label, kelas lencana]. SAMBUNG mempunyai lencana sendiri (bukan "Tamat"). */
 const LENCANA_STATUS = [
     'AKTIF'   => ['Aktif', 'st-hijau', 'Perjanjian aktif'],
