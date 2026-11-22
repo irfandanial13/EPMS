@@ -199,16 +199,99 @@ function simpan_rekod_baharu(PDO $pdo, array $data, $rawIds, $rawTiada, ?int $ol
     return ['ok' => true, 'id' => $idBaru, 'errors' => [], 'amaran' => $kunci['amaran']];
 }
 
-/**
- * Rekod yang terlibat dalam aliran sambungan (ada pautan sebagai sambungan atau pendahulu,
- * atau ditanda Tiada Dalam Rekod): jenis dan status tidak boleh diubah melalui borang Edit.
+/* ---------- Fasa 4.3: simpan Edit secara transaksi ----------
+ * Borang Edit membawa token keadaan (jenis, status, penanda Tiada Dalam Rekod, pautan) semasa borang dibuka.
+ * Semasa simpan, baris dikunci dan keadaan dibaca semula; jika berbeza, simpanan ditolak tanpa perubahan.
  */
-function rekod_terkunci_sambungan(PDO $pdo, int $id): bool
+
+/** Lajur yang boleh ditulis oleh borang Edit (senarai putih). pendahulu_tiada_rekod tidak boleh diubah di sini. */
+const KOLUM_EDIT = KOLUM_REKOD_BAHARU;
+/** Lajur yang tidak ditulis apabila rekod terkunci (nilai DB semasa dikekalkan). */
+const KOLUM_DILINDUNGI = ['jenis', 'status'];
+const MESEJ_KEADAAN_BERUBAH = 'Pautan atau status perjanjian rekod ini telah berubah sejak borang dibuka (contohnya rekod telah disambung oleh perjanjian lain). '
+    . 'Tiada perubahan disimpan. Sila muat semula borang dan semak semula sebelum menyimpan.';
+
+/**
+ * Keadaan perlindungan rekod untuk Edit. Rekod TERKUNCI (jenis & status tidak boleh diubah) jika:
+ * ada pautan sebagai sambungan atau pendahulu, ditanda Tiada Dalam Rekod, atau jenis/status bukan nilai biasa
+ * (cth SAMBUNG tanpa pautan) — supaya nilai luar biasa tidak ditukar secara senyap oleh borang.
+ * $kunci = true (mesti dalam transaksi): baris dikunci FOR UPDATE dan julat pautan rekod ini dikunci
+ * LOCK IN SHARE MODE, jadi tiada pautan baharu boleh dicipta untuk rekod ini sehingga transaksi tamat.
+ * @return array{rekod:array, pendahulu:int[], sambungan:int[], terkunci:bool, luar_biasa:bool, token:string}|null  null jika rekod tiada
+ */
+function keadaan_rekod_edit(PDO $pdo, int $id, bool $kunci = false): ?array
 {
-    $st = $pdo->prepare('SELECT (SELECT pendahulu_tiada_rekod FROM penyaluran WHERE id = ?)
-        OR EXISTS (SELECT 1 FROM penyaluran_sambungan WHERE sambungan_id = ? OR pendahulu_id = ?)');
-    $st->execute([$id, $id, $id]);
-    return (bool)$st->fetchColumn();
+    $st = $pdo->prepare('SELECT * FROM penyaluran WHERE id = ?' . ($kunci ? ' FOR UPDATE' : ''));
+    $st->execute([$id]);
+    $r = $st->fetch();
+    if (!$r) return null;
+    $kongsi = $kunci ? ' LOCK IN SHARE MODE' : '';
+    $ambil = function (string $sql) use ($pdo, $id, $kongsi): array {
+        $st = $pdo->prepare($sql . $kongsi);
+        $st->execute([$id]);
+        return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    };
+    $pendahulu = $ambil('SELECT pendahulu_id FROM penyaluran_sambungan WHERE sambungan_id = ? ORDER BY pendahulu_id');
+    $sambungan = $ambil('SELECT sambungan_id FROM penyaluran_sambungan WHERE pendahulu_id = ? ORDER BY sambungan_id');
+    $tiada = (int)$r['pendahulu_tiada_rekod'];
+    $luarBiasa = !in_array($r['status'], STATUS_MANUAL, true) || !in_array($r['jenis'], JENIS_SAH, true);
+    return [
+        'rekod' => $r, 'pendahulu' => $pendahulu, 'sambungan' => $sambungan,
+        'terkunci' => $pendahulu || $sambungan || $tiada === 1 || $luarBiasa, 'luar_biasa' => $luarBiasa,
+        'token' => hash('sha256', json_encode([$id, (string)$r['jenis'], (string)$r['status'], $tiada, $pendahulu, $sambungan])),
+    ];
+}
+
+/**
+ * Simpan Edit rekod sedia ada secara atomik:
+ *  BEGIN → kunci baris + julat pautan → baca semula keadaan → token borang mesti sama dengan keadaan semasa
+ *  → sahkan medan dilindungi & musim terhadap nilai DB semasa → UPDATE lajur dibenarkan → COMMIT.
+ * Sebarang kegagalan: ROLLBACK penuh (tiada simpanan separa).
+ * Rekod terkunci: jenis & status TIDAK ditulis (nilai yang dihantar diabaikan; nilai DB kekal).
+ *
+ * @param array $data nilai lajur (kunci dalam KOLUM_EDIT; '' sudah ditukar kepada null oleh pemanggil)
+ * @param ?string $tokenBorang token keadaan semasa borang dibuka (keadaan_rekod_edit()['token'])
+ * @return array{ok:bool, errors:string[]}
+ */
+function simpan_edit_rekod(PDO $pdo, int $id, array $data, ?string $tokenBorang): array
+{
+    $gagal = fn(string ...$e) => ['ok' => false, 'errors' => $e];
+    $tidakDikenali = array_diff(array_keys($data), KOLUM_EDIT);
+    if ($tidakDikenali) return $gagal('Medan tidak dikenali: ' . implode(', ', $tidakDikenali) . '.');
+
+    $pdo->beginTransaction();
+    try {
+        $k = keadaan_rekod_edit($pdo, $id, true);
+        if (!$k) { $pdo->rollBack(); return $gagal('Rekod ini tidak lagi wujud (mungkin telah dipadam). Tiada perubahan disimpan.'); }
+        if ($tokenBorang === null || !hash_equals($k['token'], $tokenBorang)) { $pdo->rollBack(); return $gagal(MESEJ_KEADAAN_BERUBAH); }
+
+        $errors = [];
+        if ($k['terkunci']) {
+            $data = array_diff_key($data, array_flip(KOLUM_DILINDUNGI));
+        } else {
+            if (!in_array($data['jenis'] ?? null, JENIS_SAH, true)) $errors[] = 'Jenis tidak sah.';
+            if (!in_array($data['status'] ?? null, STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
+        }
+        // Musim format lama dibenarkan hanya jika sama dengan nilai DB semasa (bukan nilai semasa borang dibuka)
+        if (array_key_exists('musim', $data) && !musim_format_sah((string)$data['musim']) && (string)$data['musim'] !== (string)$k['rekod']['musim']) {
+            $errors[] = 'Musim mesti dalam format 1/YYYY atau 2/YYYY (contoh 1/2026). Musim 0, 3 dan ke atas tidak diterima.';
+        }
+        if ($errors) { $pdo->rollBack(); return $gagal(...$errors); }
+
+        if ($data) {
+            $pdo->prepare('UPDATE penyaluran SET ' . implode(', ', array_map(fn($c) => "$c = ?", array_keys($data))) . ' WHERE id = ?')
+                ->execute([...array_values($data), $id]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        // 1205 lock wait timeout, 1213 deadlock: rekod sedang diproses oleh transaksi lain — mesej mesra, tiada perubahan
+        if ($e instanceof PDOException && in_array((int)($e->errorInfo[1] ?? 0), [1205, 1213], true)) {
+            return $gagal('Rekod ini sedang dikemas kini oleh pengguna lain. Tiada perubahan disimpan. Sila cuba simpan semula sebentar lagi.');
+        }
+        throw $e;
+    }
+    return ['ok' => true, 'errors' => []];
 }
 
 /* ---------- Perjanjian Fasa 3: paparan (baca sahaja) ---------- */

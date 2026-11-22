@@ -17,14 +17,15 @@ $rec['jenis'] = 'ASAL';
 $rec['status'] = 'AKTIF';
 $rec['model'] = 'LKPPK';
 
+// Fasa 4.3: keadaan rekod (pautan, penanda, token) untuk paparan. Semasa simpan, keadaan dibaca semula di bawah kunci.
+$keadaan = null;
 if ($id) {
-    $st = db()->prepare('SELECT * FROM penyaluran WHERE id = ?');
-    $st->execute([$id]);
-    $rec = $st->fetch() ?: redirect($urlKembali);
+    $keadaan = keadaan_rekod_edit(db(), $id) ?: redirect($urlKembali);
+    $rec = $keadaan['rekod'];
 }
 $asal = $rec;   // nilai tersimpan (rekod lama) — untuk membenarkan data lama yang tidak diubah
 // Perjanjian Fasa 2/3: rekod dalam aliran sambungan — jenis & status kekal nilai tersimpan (pelayan berkuasa)
-$terkunci = $id && rekod_terkunci_sambungan(db(), $id);
+$terkunci = (bool)($keadaan['terkunci'] ?? false);
 $pautan = $id ? pautan_rekod(db(), [$id]) : ['pendahulu' => [], 'sambungan' => []];
 // Keadaan panel pendahulu (rekod baharu): dipulihkan daripada POST jika borang dipaparkan semula
 $pendahuluPilihan = [];
@@ -72,7 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($rec['model'] === '') $errors[] = 'Sila pilih Model.';
     elseif (!isset(MODELS[$rec['model']])) $errors[] = 'Model tidak sah.';
-    if (!in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
+    // Rekod terkunci: jenis/status tidak ditulis (nilai DB dikekalkan), jadi nilai tersimpan luar biasa tidak menyekat simpanan
+    if (!$terkunci && !in_array($rec['jenis'], ['ASAL', 'SAMBUNG'], true)) $errors[] = 'Jenis tidak sah.';
     if (!in_array($rec['status'], $terkunci ? [(string)$asal['status']] : STATUS_MANUAL, true)) $errors[] = 'Status tidak sah.';
 
     // A2: Kadar Sewa & Sewaan hanya untuk model SP/EP. Bagi model lain, nilai yang dihantar ditolak;
@@ -97,21 +99,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $vals = array_map(fn($k) => $rec[$k] === '' ? null : $rec[$k], $fields);
         $vals[] = musim_susun($rec['musim']);
         if ($id) {
-            $sql = 'UPDATE penyaluran SET ' . implode(', ', array_map(fn($k) => "$k = ?", $fields)) . ', musim_susun = ? WHERE id = ?';
-            $vals[] = $id;
-            db()->prepare($sql)->execute($vals);
-            flash('Rekod telah dikemas kini.');
-            redirect($urlKembali);
+            // Fasa 4.3: transaksi — kunci rekod, semak semula pautan/status terhadap token borang, tulis lajur dibenarkan sahaja
+            $token = is_string($_POST['keadaan'] ?? null) ? $_POST['keadaan'] : null;
+            $hasil = simpan_edit_rekod(db(), $id, array_combine([...$fields, 'musim_susun'], $vals), $token);
+            if ($hasil['ok']) {
+                flash('Rekod telah dikemas kini.');
+                redirect($urlKembali);
+            }
+            $errors = $hasil['errors'];
+        } else {
+            // Rekod baharu: Perjanjian Asal atau Sambungan (pautan + status pendahulu, atomik)
+            $hasil = simpan_rekod_baharu(db(), array_combine([...$fields, 'musim_susun'], $vals),
+                $_POST['pendahulu_id'] ?? null, $_POST['pendahulu_tiada_rekod'] ?? null, (int)(current_user()['id'] ?? 0) ?: null);
+            if ($hasil['ok']) {
+                flash('Rekod baharu telah ditambah.');
+                foreach ($hasil['amaran'] as $a) flash($a, 'warning');
+                redirect($urlKembali);
+            }
+            $errors = $hasil['errors'];
         }
-        // Rekod baharu: Perjanjian Asal atau Sambungan (pautan + status pendahulu, atomik)
-        $hasil = simpan_rekod_baharu(db(), array_combine([...$fields, 'musim_susun'], $vals),
-            $_POST['pendahulu_id'] ?? null, $_POST['pendahulu_tiada_rekod'] ?? null, (int)(current_user()['id'] ?? 0) ?: null);
-        if ($hasil['ok']) {
-            flash('Rekod baharu telah ditambah.');
-            foreach ($hasil['amaran'] as $a) flash($a, 'warning');
-            redirect($urlKembali);
-        }
-        $errors = $hasil['errors'];
     }
 }
 
@@ -146,6 +152,9 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
 <form method="post" class="card op-borang" id="borangRekod" aria-label="<?= e($pageTitle) ?>" data-validasi>
   <?= csrf_field() ?>
   <input type="hidden" name="kembali" value="<?= e($kembali) ?>">
+<?php if ($id): ?>
+  <input type="hidden" name="keadaan" value="<?= e($keadaan['token']) ?>">
+<?php endif; ?>
 <?php if (!$id): $modSambung = $rec['jenis'] === 'SAMBUNG'; ?>
   <input type="hidden" name="sahkan_sambungan" id="sahkanSambungan" value="0">
 
@@ -209,7 +218,9 @@ foreach (senarai_ppk() as $p) $ppkIkutWilayah[$p['wilayah_id']][] = $p;
       <dd><?php if ($smbg): ?><ul class="op-pautan-senarai"><?php foreach ($smbg as $sr): ?><li><a href="penyaluran_form.php?id=<?= (int)$sr['id'] ?>"><?= e(teks_rekod_pautan($sr)) ?></a> <?= lencana_status($sr['status']) ?></li><?php endforeach; ?></ul>
         <?php else: ?><span class="text-muted">-</span><?php endif; ?></dd>
     </dl>
-    <?php if ($terkunci): ?><p class="small text-muted mb-0 op-pautan-nota-kunci"><i class="bi bi-lock" aria-hidden="true"></i> Jenis dan status rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini.</p><?php endif; ?></div>
+    <?php if ($terkunci): ?><p class="small text-muted mb-0 op-pautan-nota-kunci"><i class="bi bi-lock" aria-hidden="true"></i> <?= $keadaan['luar_biasa'] && !$pdhl && !$smbg && (int)$asal['pendahulu_tiada_rekod'] !== 1
+        ? 'Jenis atau status rekod ini bukan nilai biasa dan dikekalkan seperti tersimpan. Hubungi pentadbir sistem untuk pembetulan.'
+        : 'Jenis dan status rekod ini ditetapkan oleh aliran sambungan dan tidak boleh diubah di sini.' ?></p><?php endif; ?></div>
   </section>
 <?php endif; ?>
 
