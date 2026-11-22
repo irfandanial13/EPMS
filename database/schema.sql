@@ -1,15 +1,19 @@
 -- EPMS (Estet Padi Management System) : skema pangkalan data
 -- Skema pangkalan data (MySQL / MariaDB)
 -- SELAMAT: tiada DROP. Jadual sedia ada tidak akan dipadam atau ditulis ganti.
-
-CREATE DATABASE IF NOT EXISTS sipadi CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE sipadi;
+--
+-- Fail ini TIDAK mencipta atau memilih pangkalan data. Ia hanya mencipta jadual dalam pangkalan data
+-- yang telah dipilih oleh pemanggil (install.php memilih DB_NAME daripada config.php dan menolak fail
+-- SQL yang mengandungi arahan mencipta / menukar pangkalan data).
+-- Set aksara dinyatakan pada setiap jadual supaya tidak bergantung pada lalai pangkalan data.
+-- Struktur selepas garis dasar (Fasa 1 Perjanjian, Fasa 4.2 audit) dicipta oleh pastikan_skema()
+-- dalam includes/migrasi.php — sumber rujukan bagi perubahan skema selepas garis dasar.
 
 CREATE TABLE IF NOT EXISTS wilayah (
     id      INT AUTO_INCREMENT PRIMARY KEY,
     kod     VARCHAR(10)  NOT NULL UNIQUE,
     nama    VARCHAR(100) NOT NULL
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ppk (
     id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -18,7 +22,7 @@ CREATE TABLE IF NOT EXISTS ppk (
     nama        VARCHAR(150) NOT NULL,
     susunan     INT          NOT NULL DEFAULT 0,
     CONSTRAINT fk_ppk_wilayah FOREIGN KEY (wilayah_id) REFERENCES wilayah(id)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS penyaluran (
     id                 INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,7 +52,7 @@ CREATE TABLE IF NOT EXISTS penyaluran (
     INDEX idx_musim (musim_susun),
     INDEX idx_model (model),
     INDEX idx_status (status)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pengguna (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
@@ -58,7 +62,7 @@ CREATE TABLE IF NOT EXISTS pengguna (
     wajib_tukar         TINYINT(1)   NOT NULL DEFAULT 0,
     katalaluan_ditukar  DATETIME     NULL,
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS login_attempts (
     id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -68,7 +72,7 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_masa (username, created_at),
     INDEX idx_ip_masa (ip, created_at)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO wilayah (kod, nama) VALUES
 ('I',   'WILAYAH I'),
